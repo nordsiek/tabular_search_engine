@@ -1,0 +1,8 @@
+example1:
+  answer: 'item_list = [{{''Company'': ''ExxonMobil'', ''Revenue'': ''$181.5 billion'',
+    ''Profit'': ''$14.3 billion'', ''Assets'': ''$362.6 billion'', ''Market Cap'':
+    ''$185.6 billion''}}, {{''Company'': ''Royal Dutch Shell'', ''Revenue'': ''$180.5
+    billion'', ''Profit'': ''$15.8 billion'', ''Assets'': ''$388.4 billion'', ''Market
+    Cap'': ''$173.1 billion''}}]'
+  query_entries: '[''Company'', '' Revenue'', '' Profit'', '' Assets'', ''Market Cap'']'
+  query_item: List 2 major oil companies in 2020.

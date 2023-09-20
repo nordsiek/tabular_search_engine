@@ -1,0 +1,5 @@
+langchain==0.0.295
+pandas==2.1.0
+pinecone_client==2.2.4
+PyYAML==6.0.1
+tiktoken==0.5.1

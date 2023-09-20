@@ -1,0 +1,5 @@
+Context: 'Request Item List' is the first request. 'Columns Names' is a list of columns names for a data table.
+Rules: 1. Answer 'Request Item List' by returning a list. Name this list 'item_list'. 2. Select the objective in 'Request Item List'. Insert this objective in 'Columns Names' in the first position. 3. For each item in 'item_list' create a dictionary and name it after that item. 4. In each of these dictionaries create a key for each column name in 'Columns Names'.
+Request Item List: {query_item}
+Columns Names: {query_entries}
+Answer: {answer}
