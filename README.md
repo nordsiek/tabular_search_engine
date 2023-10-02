@@ -11,4 +11,4 @@ python3 -Wignore tabular_search -o_key [OPENAI_API_KEY] -b_key [BING_API_KEY] -n
 
 <ins>Example output</ins>:
 
-![alt text]([http://url/to/img.png](https://github.com/intrastella/tabular_search_engine/blob/main/example.png?raw=true)https://github.com/intrastella/tabular_search_engine/blob/main/example.png?raw=true)
+![alt text](https://github.com/intrastella/tabular_search_engine/blob/main/example.png)
