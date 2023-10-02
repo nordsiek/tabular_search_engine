@@ -1,9 +1,10 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools", "setuptools-scm"]
+build-backend = "setuptools.build_meta"
+
 [project]
-name = "tabular_search_engine"
-version = "0.0.1"
+name = "tabular_search"
+version = "1.0.0"
 authors = [
   { name="Stella Muamba Ngufulu", email="smn-work@outlook.de" },
 ]
@@ -16,6 +17,9 @@ classifiers = [
     "Operating System :: OS Independent"
 ]
 dynamic = ["dependencies"]
+
+[tool.setuptools]
+packages = ["tabular_search"]
+
 [tool.setuptools.dynamic]
 dependencies = {file = ["requirements.txt"]}
-optional-dependencies = {dev = { file = ["requirements-dev.txt"] }}
