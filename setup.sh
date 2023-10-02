@@ -1,6 +1,6 @@
 #!/bin/bash
 
-python3 -m pip install -e ./preview_model
+python3 -m pip install -e ./tabular_search_engine
 cd ./preview_model
 pip3 install openai
 pip3 uninstall pinecone-client
