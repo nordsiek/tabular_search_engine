@@ -2,21 +2,27 @@
 
 import ast
 import argparse
+import csv
 import os
 import pandas as pd
 import pinecone
+import re
 import tiktoken
 import yaml
 
 from pathlib import Path
 from typing import List
+from uuid import uuid4
 
-from langchain.llms import OpenAI
 from langchain import PromptTemplate
 from langchain import FewShotPromptTemplate
+from langchain.chains import RetrievalQAWithSourcesChain
+from langchain.chains import RetrievalQA
+from langchain.llms import OpenAI
 from langchain.document_loaders import WebBaseLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.utilities import BingSearchAPIWrapper
+from langchain.vectorstores import Pinecone
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 
 
@@ -40,8 +46,9 @@ class PreviewModel:
 
         self.name = name
         self.rows = ' '.join(rows)
-        self.columns = columns
+        self.columns = str(columns) if columns else '[]'
         self.destination = destination_file
+        self.openai_api_key = openai_api_key[0]
 
         os.environ['OPENAI_API_KEY'] = openai_api_key[0]
         os.environ["BING_SUBSCRIPTION_KEY"] = bing_api_key[0]
@@ -49,8 +56,9 @@ class PreviewModel:
 
         self.turbo = OpenAI(model_name="gpt-3.5-turbo", temperature=0.2)
 
-        self.request = ' '.join(rows)
+        self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
         self.prompt_template = None
+        self.vec_retrieve = None
 
         self.template = None
         self.examples = None
@@ -59,19 +67,29 @@ class PreviewModel:
 
         self.load_templates()
 
-    def get_bing_result(self, num_res: int = 3):
+    def get_bing_result(self, num_res: int = 15):
         """
 
         :param num_res: number of allowed results
         :return:
         """
         search = BingSearchAPIWrapper(k=num_res)
-        txt_res = search.run(self.request)
+        # txt_res = search.run(self.request)
         data_res = search.results(self.request, num_res)
 
         urls = [data_res[i]['link'] for i in range(len(data_res))]
         loader = WebBaseLoader(urls)
         data = loader.load()
+        # data[1].page_content = 'oiuhoci'
+        # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
+        return data
+
+    @staticmethod
+    def retrieve():
+        from datasets import load_dataset
+
+        data = load_dataset("wikipedia", "20220301.simple", split='train[:10000]')
+        return data
 
     def load_templates(self):
         script_path = Path(__file__).parent.resolve()
@@ -91,24 +109,40 @@ class PreviewModel:
         self.examples = [self.examples[k] for k in self.examples.keys()]
 
     def get_template(self):
-        example_prompt = PromptTemplate(template=self.template, input_variables=['query_item', 'query_entries', 'answer'])
+        """
+        query_item : rows = user request
+        query_entries: columns = add infos
+        answer: model answer
+        :return:
+        """
 
-        self.prompt_template = FewShotPromptTemplate(
-            examples=self.examples,
-            example_prompt=example_prompt,
-            prefix=self.prefix,
-            suffix=self.suffix,
-            input_variables=['query_item', 'query_entries']
-        )
+        example = 'Request Item List: {question} Columns Names: {query_entries} Answer: {answer}'
+        ex_string = example.format(**self.examples[0])
+        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}')
+        temp = self.prefix + ' \n The following is an example: ' + ex_string + '  \n  ' + partial_s
+
+        self.prompt_template = PromptTemplate(template=temp,
+                                              input_variables=['context', 'question'])
+
+    def retrieval(self):
+        data = self.get_bing_result()
+        self.vec_retrieve = RAG(data=data, openai_api_key=self.openai_api_key)
+        self.vec_retrieve.setup()
+        self.vec_retrieve.setup_storage()
 
     def get_answer(self):
         script_path = Path(__file__).parent.resolve()
 
-        res = self.turbo(
-            self.prompt_template.format(
-                query_item=self.rows,
-                query_entries=self.columns)
-            )
+        self.retrieval()
+
+        qa_with_sources = self.vec_retrieve.GQA_Source(
+            self.turbo,
+            self.prompt_template
+        )
+
+        res = qa_with_sources.run(self.rows)
+        out = self.parse_output(res)
+        self.save_csv(out)
 
         df = pd.DataFrame()
         for col in ast.literal_eval(res[12:])[0].keys():
@@ -121,9 +155,32 @@ class PreviewModel:
         else:
             df.to_excel(script_path / f'output_tables/{self.name}.xlsx', index_label='id')
 
+    def save_csv(self, output):
+        script_path = Path(__file__).parent.resolve()
+
+        with open(script_path / f'output_csv/{self.name}.csv', 'w', newline='') as file:
+            writer = csv.writer(file)
+            writer.writerow(output)
+
+    @staticmethod
+    def parse_output(output):
+        parsed_out = ''
+        column_names = None
+        while output:
+            m = re.search('{(.+?)}', output)
+            if m:
+                parsed_out += '{' + m.group(1) + '}'
+                output = output[m.span()[1]:]
+
+                if not column_names:
+                    column_names = list(ast.literal_eval(parsed_out).keys())
+            else:
+                output = ''
+
+        return '[' + str(column_names) + parsed_out + ']'
+
     def run(self):
         self.get_template()
-        # self.get_bing_result()
         self.get_answer()
 
 
@@ -133,19 +190,24 @@ class RAG:
         self.data = data
         self.openai_api_key = openai_api_key
         self.tokenizer = tiktoken.get_encoding('p50k_base')
+        # os.environ['OPENAI_API_KEY'] = openai_api_key[0]
 
+        self.embed = None
         self.index = None
+        self.vectorstore = None
 
-    def divide_txt(self):
-        text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=400,
-            chunk_overlap=20,
-            length_function=self.tiktoken_len,
-            separators=["\n\n", "\n", " ", ""]
-        )
+        self.index_name = 'langchain-retrieval-augmentation'
 
-        chunks = text_splitter.split_text(self.data[6]['text'])[:3]
-        return chunks
+    def setup(self):
+        # sub_data = self.data[6]['text']
+        sub_data = self.data[0].page_content
+
+        text_splitter = self.divide_txt()
+        chunks = text_splitter.split_text(sub_data)[:3]
+        embed = self.get_embedding(chunks)
+        self.pinecone_index(embed, new=True)
+
+        self.add_data_2_index()
 
     def tiktoken_len(self, text: str):
         tokens = self.tokenizer.encode(
@@ -154,40 +216,125 @@ class RAG:
         )
         return len(tokens)
 
+    def divide_txt(self):
+        text_splitter = RecursiveCharacterTextSplitter(
+            chunk_size=400,
+            chunk_overlap=20,
+            length_function=self.tiktoken_len,
+            separators=["\n\n", "\n", " ", ""]
+        )
+        return text_splitter
+
     def get_embedding(self, texts: List[str]):
         model_name = 'text-embedding-ada-002'
 
-        embed = OpenAIEmbeddings(
+        self.embed = OpenAIEmbeddings(
             document_model_name=model_name,
             query_model_name=model_name,
             openai_api_key=self.openai_api_key
         )
 
-        return embed.embed_documents(texts)
+        return self.embed.embed_documents(texts)
 
-    def create_new_index(self, embedded_txt):
-        index_name = 'langchain-retrieval-augmentation'
-
+    def pinecone_index(self, embedded_txt, new=False):
         pinecone.init(
-            api_key="71167545-433c-4cc9-95c0-2c993b0a86c4",
+            api_key="1ea8696f-0f2c-4510-bc3f-1e198071b2b0",
             environment="gcp-starter"
         )
 
+        if new:
+            pinecone.delete_index(name=self.index_name)
+
         pinecone.create_index(
-            name=index_name,
+            name=self.index_name,
             metric='dotproduct',
             dimension=len(embedded_txt[0])
         )
 
-        self.index = pinecone.GRPCIndex(index_name)
-        # self.index.describe_index_stats()
+        self.get_index()
+
+    def get_index(self):
+        # connect to the new index
+        self.index = pinecone.GRPCIndex(self.index_name)
+        self.index.describe_index_stats()
+
+    def setup_storage(self):
+        text_field = "text"
+        index = pinecone.Index(self.index_name)
+
+        self.vectorstore = Pinecone(
+            index, self.embed.embed_query, text_field
+        )
+
+    def add_data_2_index(self):
+        batch_limit = 100
+        texts = []
+        metadatas = []
+
+        # data[1].page_content = 'oiuhoci'
+        # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
+
+        for i, record in enumerate(self.data):
+
+            if (record.metadata['source'].split('.')[-1] != 'pdf') and ('title' in record.metadata.keys()):
+                metadata = {
+                    'id': str(i),
+                    'source': record.metadata['source'],
+                    'title': record.metadata['title']
+                }
+
+                text_splitter = self.divide_txt()
+                # record_texts = text_splitter.split_text(record['text'])
+                record_texts = text_splitter.split_text(record.page_content)
+
+                record_metadatas = [{
+                    "chunk": j, "text": text, **metadata
+                } for j, text in enumerate(record_texts)]
+
+                texts.extend(record_texts)
+                metadatas.extend(record_metadatas)
+
+                if len(texts) >= batch_limit:
+                    ids = [str(uuid4()) for _ in range(len(texts))]
+                    embeds = self.get_embedding(texts)
+                    self.index.upsert(vectors=zip(ids, embeds, metadatas))
+                    texts = []
+                    metadatas = []
+
+    def similarity_search(self, query):
+        self.vectorstore.similarity_search(
+            query,
+            k=3
+        )
+
+    def GQA(self, query, llm, prompt_template):
+        qa = RetrievalQA.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=self.vectorstore.as_retriever(),
+            chain_type_kwargs=dict(prompt=prompt_template)
+        )
+        return qa.run(query)
+
+    def GQA_Source(self, llm, prompt_template):
+        chain_type_kwargs = {"prompt": prompt_template}
+        qa_with_sources = RetrievalQA.from_chain_type(llm=OpenAI(), chain_type="stuff", retriever=self.vectorstore.as_retriever(),
+                                         chain_type_kwargs=chain_type_kwargs)
+
+        '''qa_with_sources = RetrievalQAWithSourcesChain.from_chain_type(
+            llm=llm,
+            chain_type="stuff",
+            retriever=self.vectorstore.as_retriever(),
+            chain_type_kwargs=dict(prompt=prompt_template)
+        )'''
+        return qa_with_sources
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument("-o_key", "--openai_api_key", help="API key from OpenAI.", required=True, nargs='+')
     parser.add_argument("-b_key", "--bing_api_key", help="API key from Bing.", required=True, nargs='+')
-    parser.add_argument("-n", "--name", help="File name of excel.", required=True)
+    parser.add_argument("-n", "--o_name", help="File name of excel.", required=True)
     parser.add_argument("-r", "--request", help="Your request.", dest="rows", required=True, nargs='+')
     parser.add_argument("-add", "--add_info", help="Required additional info to your request.", dest="columns", required=False, nargs='+')
 

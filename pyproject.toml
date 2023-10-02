@@ -2,7 +2,7 @@
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 [project]
-name = "tabular search engine"
+name = "tabular_search_engine"
 version = "0.0.1"
 authors = [
   { name="Stella Muamba Ngufulu", email="smn-work@outlook.de" },

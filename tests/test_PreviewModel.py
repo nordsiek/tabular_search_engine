@@ -7,8 +7,8 @@ from main import PreviewModel
 
 
 def main():
-    openai_api_key = ['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']
-    bing_api_key = ["f5764165ef1c4668a26e72ac8841ea98"]
+    openai_api_key = ['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']
+    bing_api_key = ["8626056adbff4eb4b590d6a92fbce963"]
 
     rows = ['List', '5', 'major', 'companies', 'for', 'semiconductors', 'in', '2020.']
     columns = ['Revenue', 'Profit', 'Employees', 'Country']
@@ -21,5 +21,17 @@ def main():
     df = pd.read_excel(script_path / f'output_tables/semiconductors.xlsx')
 
 
+def test_rag():
+    openai_api_key = ['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']
+    bing_api_key = ["8626056adbff4eb4b590d6a92fbce963"]
+
+    rows = ['What', 'are', 'the', 'top', '5', 'companies', 'and', 'their', 'revenues', 'for', 'semiconductors', 'in', '2023?']
+    columns = ['Profit', 'Employees', 'Country']
+
+    pm = PreviewModel(openai_api_key, bing_api_key, 'semiconductors', rows, columns)
+    pm.run()
+
+
 if __name__ == '__main__':
-    main()
+    # main()
+    test_rag()
