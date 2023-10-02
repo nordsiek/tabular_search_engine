@@ -1,6 +1,6 @@
 example1:
   question: List 2 major oil companies and their revenues in 2020.
-  query_entries: '['' Profit'', '' Assets'', ''Market Cap'']'
+  query_entries: '['' Assets'', ''Market Cap'']'
   answer: 'item_list = [{{''Company'': ''ExxonMobil'', ''Revenue'': ''$181.5 billion'',
     ''Profit'': ''$14.3 billion'', ''Assets'': ''$362.6 billion'', ''Market Cap'':
     ''$185.6 billion''}}, {{''Company'': ''Royal Dutch Shell'', ''Revenue'': ''$180.5
