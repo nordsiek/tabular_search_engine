@@ -7,8 +7,8 @@ from main import PreviewModel
 
 
 def main():
-    openai_api_key = ['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']
-    bing_api_key = ["8626056adbff4eb4b590d6a92fbce963"]
+    openai_api_key = ['']
+    bing_api_key = [""]
 
     rows = ['List', '5', 'major', 'companies', 'for', 'semiconductors', 'in', '2020.']
     columns = ['Revenue', 'Profit', 'Employees', 'Country']
@@ -22,8 +22,8 @@ def main():
 
 
 def test_rag():
-    openai_api_key = ['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']
-    bing_api_key = ["8626056adbff4eb4b590d6a92fbce963"]
+    openai_api_key = ['']
+    bing_api_key = [""]
 
     rows = ['What', 'are', 'the', 'top', '5', 'companies', 'and', 'their', 'revenues', 'for', 'semiconductors', 'in', '2023?']
     columns = ['Profit', 'Employees', 'Country']
