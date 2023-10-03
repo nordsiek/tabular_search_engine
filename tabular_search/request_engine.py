@@ -7,8 +7,10 @@ import os
 import pandas as pd
 import pinecone
 import re
+import requests
 import tiktoken
 import yaml
+import sys
 
 from pathlib import Path
 from typing import List
@@ -56,7 +58,11 @@ class PreviewModel:
 
         self.turbo = OpenAI(model_name="gpt-3.5-turbo", temperature=0.2)
 
-        self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
+        ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
+        if columns:
+            self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
+        else:
+            self.request = ' '.join(rows)
         self.prompt_template = None
         self.vec_retrieve = None
 
@@ -67,7 +73,7 @@ class PreviewModel:
 
         self.load_templates()
 
-    def get_bing_result(self, num_res: int = 15):
+    def get_bing_result(self, num_res: int = 10):
         """
 
         :param num_res: number of allowed results
@@ -76,13 +82,24 @@ class PreviewModel:
         search = BingSearchAPIWrapper(k=num_res)
         # txt_res = search.run(self.request)
         data_res = search.results(self.request, num_res)
-
         urls = [data_res[i]['link'] for i in range(len(data_res))]
-        loader = WebBaseLoader(urls)
+        urls = list(set(urls))
+        checked_urls = self.check_url_exists(urls)
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,raise_for_status=True,requests_per_second=10)
         data = loader.load()
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
         return data
+    
+    @staticmethod
+    def check_url_exists(urls: List[str]):
+        checked_urls = []
+        for url in urls:
+            try:
+                if requests.head(url, allow_redirects=True).status_code == 200:
+                    checked_urls.append(url)
+            except: pass
+        return checked_urls
 
     @staticmethod
     def retrieve():
@@ -142,42 +159,28 @@ class PreviewModel:
 
         res = qa_with_sources.run(self.rows)
         out = self.parse_output(res)
-        self.save_csv(out)
-
-        df = pd.DataFrame()
-        for col in ast.literal_eval(res[12:])[0].keys():
-            df[col] = 0
-        for elem in ast.literal_eval(res[12:]):
-            df.loc[len(df)] = elem
-
-        if self.destination:
-            df.to_excel(self.destination, index_label='id')
-        else:
-            df.to_excel(script_path / f'output_tables/{self.name}.xlsx', index_label='id')
-
-    def save_csv(self, output):
-        script_path = Path(__file__).parent.resolve()
-
-        with open(script_path / f'output_csv/{self.name}.csv', 'w', newline='') as file:
-            writer = csv.writer(file)
-            writer.writerow(output)
+        self.to_csv(out)
+            
+    def to_csv(self, output):
+        writer = csv.DictWriter(sys.stdout,output[0],quoting=csv.QUOTE_ALL)
+        writer.writeheader();
+        for row in output[1:]:
+            writer.writerow(row)
 
     @staticmethod
     def parse_output(output):
-        parsed_out = ''
+        result = []
         column_names = None
         while output:
             m = re.search('{(.+?)}', output)
             if m:
-                parsed_out += '{' + m.group(1) + '}'
+                elem = dict(ast.literal_eval('{' + m.group(1) + '}'))
+                result.append(elem)
                 output = output[m.span()[1]:]
-
-                if not column_names:
-                    column_names = list(ast.literal_eval(parsed_out).keys())
             else:
                 output = ''
-
-        return '[' + str(column_names) + parsed_out + ']'
+        result.insert(0,list({k for d in result for k in d.keys()}))
+        return result
 
     def run(self):
         self.get_template()
