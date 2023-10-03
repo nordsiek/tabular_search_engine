@@ -7,6 +7,7 @@ import os
 import pandas as pd
 import pinecone
 import re
+import requests
 import tiktoken
 import yaml
 
@@ -78,11 +79,22 @@ class PreviewModel:
         data_res = search.results(self.request, num_res)
 
         urls = [data_res[i]['link'] for i in range(len(data_res))]
-        loader = WebBaseLoader(urls)
+        checked_urls = self.check_url_exists(urls)
+        loader = WebBaseLoader(checked_urls)
         data = loader.load()
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
         return data
+
+    @staticmethod
+    def check_url_exists(urls: List[str]):
+        checked_urls = []
+        for url in urls:
+            try:
+                if requests.head(url, allow_redirects=True).status_code == 200:
+                    checked_urls.append(url)
+            except: pass
+        return checked_urls
 
     @staticmethod
     def retrieve():
