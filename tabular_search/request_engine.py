@@ -90,7 +90,7 @@ class PreviewModel:
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
         return data
-    
+
     @staticmethod
     def check_url_exists(urls: List[str]):
         checked_urls = []
