@@ -21,6 +21,7 @@ from langchain import FewShotPromptTemplate
 from langchain.chains import RetrievalQAWithSourcesChain
 from langchain.chains import RetrievalQA
 from langchain.llms import OpenAI
+from langchain.chat_models import ChatOpenAI
 from langchain.document_loaders import WebBaseLoader
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.utilities import BingSearchAPIWrapper
@@ -33,7 +34,9 @@ class PreviewModel:
     def __init__(self,
                  openai_api_key: List[str],
                  bing_api_key: List[str],
-                 name: str,
+                 num_pages: int,
+                 verbose: bool,
+                 model: str,
                  rows: List[str],
                  columns: List[str] = None,
                  destination_file: str = None):
@@ -46,7 +49,9 @@ class PreviewModel:
                 Ex.: [Size of Company, Company income per year] - for each major oil producers in 2020
         """
 
-        self.name = name
+        self.num_pages = num_pages if num_pages else 10
+        self.verbose = verbose
+        self.model = model
         self.rows = ' '.join(rows)
         self.columns = str(columns) if columns else '[]'
         self.destination = destination_file
@@ -57,6 +62,7 @@ class PreviewModel:
         os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
 
         self.turbo = OpenAI(model_name="gpt-3.5-turbo", temperature=0.2)
+        self.retrievalLLM = ChatOpenAI(model_name=(model if model else "gpt-3.5-turbo-16k"), temperature=0.2)
 
         ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
         if columns:
@@ -73,7 +79,7 @@ class PreviewModel:
 
         self.load_templates()
 
-    def get_bing_result(self, num_res: int = 10):
+    def get_bing_result(self, num_res: int = 3):
         """
 
         :param num_res: number of allowed results
@@ -85,7 +91,7 @@ class PreviewModel:
         urls = [data_res[i]['link'] for i in range(len(data_res))]
         urls = list(set(urls))
         checked_urls = self.check_url_exists(urls)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,raise_for_status=True,requests_per_second=10)
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = 10,requests_kwargs = {"timeout":10})
         data = loader.load()
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
@@ -96,7 +102,7 @@ class PreviewModel:
         checked_urls = []
         for url in urls:
             try:
-                if requests.head(url, allow_redirects=True).status_code == 200:
+                if requests.head(url, allow_redirects=True, timeout=3).status_code == 200:
                     checked_urls.append(url)
             except: pass
         return checked_urls
@@ -133,7 +139,7 @@ class PreviewModel:
         :return:
         """
 
-        example = 'Request Item List: {question} Columns Names: {query_entries} Answer: {answer}'
+        example = 'Request: {question} Columns: {query_entries} Answer: {answer}'
         ex_string = example.format(**self.examples[0])
         partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}')
         temp = self.prefix + ' \n The following is an example: ' + ex_string + '  \n  ' + partial_s
@@ -142,45 +148,49 @@ class PreviewModel:
                                               input_variables=['context', 'question'])
 
     def retrieval(self):
-        data = self.get_bing_result()
+        data = self.get_bing_result(self.num_pages)
         self.vec_retrieve = RAG(data=data, openai_api_key=self.openai_api_key)
         self.vec_retrieve.setup()
         self.vec_retrieve.setup_storage()
 
     def get_answer(self):
         script_path = Path(__file__).parent.resolve()
-
         self.retrieval()
-
         qa_with_sources = self.vec_retrieve.GQA_Source(
-            self.turbo,
+            self.retrievalLLM,
             self.prompt_template
         )
-
         res = qa_with_sources.run(self.rows)
-        out = self.parse_output(res)
-        self.to_csv(out)
-            
-    def to_csv(self, output):
-        writer = csv.DictWriter(sys.stdout,output[0],quoting=csv.QUOTE_ALL)
-        writer.writeheader();
-        for row in output[1:]:
-            writer.writerow(row)
+        self.parse_output(res)
 
     @staticmethod
     def parse_output(output):
+        out = []
+        dialect = csv.Sniffer().sniff(output)
+        reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
+        for row in reader:
+            out.append(row)
+        writer = csv.writer(sys.stdout,out[0],quoting=csv.QUOTE_ALL)
+        for row in out:
+            writer.writerow(row)
+        '''
         result = []
         column_names = None
         while output:
             m = re.search('{(.+?)}', output)
             if m:
-                elem = dict(ast.literal_eval('{' + m.group(1) + '}'))
-                result.append(elem)
+                try:
+                    elem = dict(ast.literal_eval('{' + m.group(1) + '}'))
+                    result.append(elem)
+                except:
+                    pass
+                
                 output = output[m.span()[1]:]
             else:
                 output = ''
         result.insert(0,list({k for d in result for k in d.keys()}))
         return result
+        '''
 
     def run(self):
         self.get_template()
@@ -246,13 +256,19 @@ class RAG:
         )
 
         if new:
-            pinecone.delete_index(name=self.index_name)
-
-        pinecone.create_index(
-            name=self.index_name,
-            metric='dotproduct',
-            dimension=len(embedded_txt[0])
-        )
+            try:
+                pinecone.delete_index(name=self.index_name)
+            except:
+                pass
+            
+        try:
+            pinecone.create_index(
+                name=self.index_name,
+                metric='dotproduct',
+                dimension=len(embedded_txt[0])
+            )
+        except Exception as error:
+            print("Error@Pinecone.create_index:",error)
 
         self.get_index()
 
@@ -321,14 +337,11 @@ class RAG:
 
     def GQA_Source(self, llm, prompt_template):
         chain_type_kwargs = {"prompt": prompt_template}
-        qa_with_sources = RetrievalQA.from_chain_type(llm=OpenAI(), chain_type="stuff", retriever=self.vectorstore.as_retriever(),
-                                         chain_type_kwargs=chain_type_kwargs)
-
+        qa_with_sources = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=self.vectorstore.as_retriever(),chain_type_kwargs=chain_type_kwargs)
         '''qa_with_sources = RetrievalQAWithSourcesChain.from_chain_type(
             llm=llm,
             chain_type="stuff",
             retriever=self.vectorstore.as_retriever(),
             chain_type_kwargs=dict(prompt=prompt_template)
         )'''
-
         return qa_with_sources

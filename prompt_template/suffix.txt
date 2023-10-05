@@ -1,4 +1,4 @@
 {context}
-Request Item List: {question}
-Columns Names: {query_entries}
+Request: {question}
+Columns: {query_entries}
 Answer:
