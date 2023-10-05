@@ -34,6 +34,7 @@ class PreviewModel:
     def __init__(self,
                  openai_api_key: List[str],
                  bing_api_key: List[str],
+                 pinecone_api_key: List[str],
                  num_pages: int,
                  verbose: bool,
                  model: str,
@@ -59,8 +60,8 @@ class PreviewModel:
 
         os.environ['OPENAI_API_KEY'] = openai_api_key[0]
         os.environ["BING_SUBSCRIPTION_KEY"] = bing_api_key[0]
+        os.environ["PINECONE_API_KEY"] = pinecone_api_key[0]
         os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
-
         self.turbo = OpenAI(model_name="gpt-3.5-turbo", temperature=0.2)
         self.retrievalLLM = ChatOpenAI(model_name=(model if model else "gpt-3.5-turbo-16k"), temperature=0.2)
 
@@ -251,7 +252,7 @@ class RAG:
 
     def pinecone_index(self, embedded_txt, new=False):
         pinecone.init(
-            api_key="1ea8696f-0f2c-4510-bc3f-1e198071b2b0",
+            api_key=os.getenv("PINECONE_API_KEY"),
             environment="gcp-starter"
         )
 
