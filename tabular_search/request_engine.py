@@ -10,6 +10,7 @@ import re
 import requests
 import tiktoken
 import yaml
+import logging
 import sys
 
 from pathlib import Path
@@ -39,8 +40,7 @@ class PreviewModel:
                  verbose: bool,
                  model: str,
                  rows: List[str],
-                 columns: List[str] = None,
-                 destination_file: str = None):
+                 columns: List[str] = None):
 
         """
         Creates a metadata table.
@@ -49,21 +49,39 @@ class PreviewModel:
         :param columns: List of all demanded information for each row.
                 Ex.: [Size of Company, Company income per year] - for each major oil producers in 2020
         """
-
-        self.num_pages = num_pages if num_pages else 10
-        self.verbose = verbose
-        self.model = model
+        logging.basicConfig(level=(logging.DEBUG if verbose else logging.ERROR),format='%(asctime)s %(message)s', datefmt='%m/%d/%Y %I:%M:%S')
+        
+        logging.debug("Starting..")
+        
+        self.num_pages = int(num_pages) if num_pages else 100
+        self.verbose = bool(verbose) if verbose else False
+        self.model = (str(model) if model else "gpt-3.5-turbo-16k")
         self.rows = ' '.join(rows)
         self.columns = str(columns) if columns else '[]'
-        self.destination = destination_file
         self.openai_api_key = openai_api_key[0]
+        self.scrape_rps = 10
+        self.scrape_timeout = 5
 
         os.environ['OPENAI_API_KEY'] = openai_api_key[0]
         os.environ["BING_SUBSCRIPTION_KEY"] = bing_api_key[0]
         os.environ["PINECONE_API_KEY"] = pinecone_api_key[0]
         os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
-        self.turbo = OpenAI(model_name="gpt-3.5-turbo", temperature=0.2)
-        self.retrievalLLM = ChatOpenAI(model_name=(model if model else "gpt-3.5-turbo-16k"), temperature=0.2)
+        
+        if (openai_api_key[0] and bing_api_key[0] and pinecone_api_key[0]):
+            logging.debug("Found API Keys for OpenAI, Bing and Pinecone.")
+        else:
+            if not openai_api_key[0]:
+                logging.warning("OpenAI API Key Missing.")
+            if not bing_api_key[0]:
+                logging.warning("Bing API Key Missing.")
+            if not pinecone_api_key[0]:
+                logging.warning("Pinecone API Key Missing.")
+                
+        logging.debug("Selected Model is %s.",self.model)
+        logging.debug("Raw Prompt is %s.",self.rows)
+        logging.debug("Num Pages is %i.",self.num_pages)
+            
+        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2)
 
         ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
         if columns:
@@ -77,7 +95,10 @@ class PreviewModel:
         self.examples = None
         self.prefix = None
         self.suffix = None
-
+        
+        logging.debug("Initialized.")
+        logging.debug("Extended Prompt is: %s",self.request)
+        
         self.load_templates()
 
     def get_bing_result(self, num_res: int = 3):
@@ -86,16 +107,22 @@ class PreviewModel:
         :param num_res: number of allowed results
         :return:
         """
+        logging.debug("Getting %i Bing Results..",num_res)
         search = BingSearchAPIWrapper(k=num_res)
         # txt_res = search.run(self.request)
         data_res = search.results(self.request, num_res)
+        logging.debug("Finished Getting Bing Results, got %i..",len(data_res))
         urls = [data_res[i]['link'] for i in range(len(data_res))]
         urls = list(set(urls))
+        logging.debug("Checking %i Bing Result URLs after removing duplicates..",len(urls))
         checked_urls = self.check_url_exists(urls)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = 10,requests_kwargs = {"timeout":10})
+        logging.debug("Done checking, found %i functioning URLs to scrape.",len(checked_urls))
+        logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
         data = loader.load()
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
+        logging.debug("Finished retrieving, got %i pages.",len(data))
         return data
 
     @staticmethod
@@ -105,7 +132,9 @@ class PreviewModel:
             try:
                 if requests.head(url, allow_redirects=True, timeout=3).status_code == 200:
                     checked_urls.append(url)
-            except: pass
+            except: 
+                logging.debug("URL %s did not immediately return status 200, skipping..",url)
+                pass
         return checked_urls
 
     @staticmethod
@@ -147,6 +176,7 @@ class PreviewModel:
 
         self.prompt_template = PromptTemplate(template=temp,
                                               input_variables=['context', 'question'])
+        logging.debug("Prompt Template Ready.")
 
     def retrieval(self):
         data = self.get_bing_result(self.num_pages)
@@ -161,19 +191,24 @@ class PreviewModel:
             self.retrievalLLM,
             self.prompt_template
         )
+        logging.debug("Generalistic Question Answering Finished Started..")
         res = qa_with_sources.run(self.rows)
+        logging.debug("Generalistic Question Answering Finished.")
         self.parse_output(res)
 
     @staticmethod
     def parse_output(output):
+        logging.debug("Validating and Parsing Model Output..")
         out = []
         dialect = csv.Sniffer().sniff(output)
         reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
         for row in reader:
             out.append(row)
+        logging.debug("Validation Finished..")
         writer = csv.writer(sys.stdout,out[0],quoting=csv.QUOTE_ALL)
         for row in out:
             writer.writerow(row)
+        logging.debug("Parsing Finished.")
         '''
         result = []
         column_names = None
@@ -196,6 +231,7 @@ class PreviewModel:
     def run(self):
         self.get_template()
         self.get_answer()
+        logging.debug("Run Completed.")
 
 
 class RAG:
@@ -241,50 +277,63 @@ class RAG:
 
     def get_embedding(self, texts: List[str]):
         model_name = 'text-embedding-ada-002'
-
+        logging.debug("Embedding started for %i documents..",len(texts))
         self.embed = OpenAIEmbeddings(
             document_model_name=model_name,
             query_model_name=model_name,
             openai_api_key=self.openai_api_key
         )
-
-        return self.embed.embed_documents(texts)
+        embeds = self.embed.embed_documents(texts)
+        logging.debug("Embedding finished.")
+        return embeds
 
     def pinecone_index(self, embedded_txt, new=False):
+        
         pinecone.init(
             api_key=os.getenv("PINECONE_API_KEY"),
             environment="gcp-starter"
         )
+        logging.debug("Initialized Pinecone API.")
 
         if new:
             try:
+                logging.debug("Deleting Existing Pinecone Index..")
                 pinecone.delete_index(name=self.index_name)
+                logging.debug("Existing Pinecone Index Deleted.")
             except:
+                logging.warning("Existing Pinecone Index could not be deleted.")
                 pass
             
         try:
+            logging.debug("Creating New Pinecone Index..")
             pinecone.create_index(
                 name=self.index_name,
                 metric='dotproduct',
                 dimension=len(embedded_txt[0])
             )
+            logging.debug("Finished Creating New Pinecone Index.")
         except Exception as error:
-            print("Error@Pinecone.create_index:",error)
+            logging.error("Could not create Pinecone Index: %s",str(error),extra={error:error})
 
         self.get_index()
 
     def get_index(self):
         # connect to the new index
+        logging.debug("Connecting to New Index...")
         self.index = pinecone.GRPCIndex(self.index_name)
+        logging.debug("Pinecone Index Connection established.")
+        logging.debug("Describing Index...")
         self.index.describe_index_stats()
+        logging.debug("Index Description Received.")
 
     def setup_storage(self):
         text_field = "text"
+        logging.debug("Pinecone Storage Setup Started.")
         index = pinecone.Index(self.index_name)
-
         self.vectorstore = Pinecone(
             index, self.embed.embed_query, text_field
         )
+        logging.debug("Pinecone Storage Setup Complete.")
 
     def add_data_2_index(self):
         batch_limit = 100
@@ -313,11 +362,13 @@ class RAG:
 
                 texts.extend(record_texts)
                 metadatas.extend(record_metadatas)
-
+                logging.debug("Scraped data split into %i chunks.",len(texts))
                 if len(texts) >= batch_limit:
                     ids = [str(uuid4()) for _ in range(len(texts))]
                     embeds = self.get_embedding(texts)
+                    logging.debug("Upserting Vectors into Vector DB..")
                     self.index.upsert(vectors=zip(ids, embeds, metadatas))
+                    logging.debug("Upserts finished.")
                     texts = []
                     metadatas = []
 
@@ -337,8 +388,10 @@ class RAG:
         return qa.run(query)
 
     def GQA_Source(self, llm, prompt_template):
+        logging.debug("Starting Generalistic Question Answering Chain Setup..")
         chain_type_kwargs = {"prompt": prompt_template}
         qa_with_sources = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=self.vectorstore.as_retriever(),chain_type_kwargs=chain_type_kwargs)
+        logging.debug("Finished Generalistic Question Answering Chain Setup Finished.")
         '''qa_with_sources = RetrievalQAWithSourcesChain.from_chain_type(
             llm=llm,
             chain_type="stuff",
