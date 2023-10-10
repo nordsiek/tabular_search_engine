@@ -234,6 +234,8 @@ class PreviewModel:
         logging.debug("QA Finished.")
         logging.debug(res)
         
+        print(res)
+        
     @staticmethod
     def get_sources(docs):
         sources = []
