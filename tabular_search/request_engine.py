@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
 
+__import__('pysqlite3')
+
 import ast
 import argparse
 import csv
@@ -10,11 +12,13 @@ import re
 import requests
 import tiktoken
 import yaml
+import logging
 import sys
 
 from pathlib import Path
 from typing import List
 from uuid import uuid4
+from io import StringIO
 
 from langchain import PromptTemplate
 from langchain import FewShotPromptTemplate
@@ -27,20 +31,23 @@ from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.utilities import BingSearchAPIWrapper
 from langchain.vectorstores import Pinecone
 from langchain.text_splitter import RecursiveCharacterTextSplitter
+from langchain.vectorstores import Chroma
 
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 class PreviewModel:
 
     def __init__(self,
-                 openai_api_key: List[str],
-                 bing_api_key: List[str],
-                 pinecone_api_key: List[str],
+                 openai_api_key: str,
+                 bing_api_key: str,
+                 pinecone_api_key: str,
                  num_pages: int,
+                 dbType: str,
                  verbose: bool,
+                 redo: bool,
                  model: str,
                  rows: List[str],
-                 columns: List[str] = None,
-                 destination_file: str = None):
+                 columns: List[str] = None):
 
         """
         Creates a metadata table.
@@ -49,21 +56,45 @@ class PreviewModel:
         :param columns: List of all demanded information for each row.
                 Ex.: [Size of Company, Company income per year] - for each major oil producers in 2020
         """
-
-        self.num_pages = num_pages if num_pages else 10
-        self.verbose = verbose
-        self.model = model
+        logging.basicConfig(level=(logging.DEBUG if verbose else logging.ERROR),format='%(asctime)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+        
+        logging.debug("Starting..")
+        
+        self.num_pages = int(num_pages) if num_pages else 100
+        self.verbose = bool(verbose) if verbose else False
+        self.model = (str(model) if model else "gpt-3.5-turbo-16k")
         self.rows = ' '.join(rows)
         self.columns = str(columns) if columns else '[]'
-        self.destination = destination_file
-        self.openai_api_key = openai_api_key[0]
-
-        os.environ['OPENAI_API_KEY'] = openai_api_key[0]
-        os.environ["BING_SUBSCRIPTION_KEY"] = bing_api_key[0]
-        os.environ["PINECONE_API_KEY"] = pinecone_api_key[0]
+        self.openai_api_key = openai_api_key
+        self.scrape_rps = 10
+        self.scrape_timeout = 5
+        self.dbType = "chroma" if (str(dbType) == 'chroma' or not pinecone_api_key) else "pinecone"
+        self.redo = bool(redo) if redo else False
         os.environ["BING_SEARCH_URL"] = "https://api.bing.microsoft.com/v7.0/search"
-        self.turbo = OpenAI(model_name="gpt-3.5-turbo", temperature=0.2)
-        self.retrievalLLM = ChatOpenAI(model_name=(model if model else "gpt-3.5-turbo-16k"), temperature=0.2)
+        
+        if not openai_api_key:
+            logging.error("OpenAI API Key Missing.")
+        else:
+            os.environ['OPENAI_API_KEY'] = openai_api_key
+            
+        if not bing_api_key:
+            logging.error("Bing API Key Missing.")
+        else:
+            os.environ["BING_SUBSCRIPTION_KEY"] = bing_api_key
+            
+        if not pinecone_api_key and dbType == "pinecone":
+            logging.error("Pinecone API Key Missing.")
+        else:
+            if dbType == "pinecone":
+                os.environ["PINECONE_API_KEY"] = pinecone_api_key
+        
+                
+        logging.debug("Selected Model is %s.",self.model)
+        logging.debug("Vector DB Type is %s.",self.dbType)
+        logging.debug("Raw Prompt is %s.",self.rows)
+        logging.debug("Num Pages is %i.",self.num_pages)
+            
+        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose)
 
         ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
         if columns:
@@ -77,7 +108,10 @@ class PreviewModel:
         self.examples = None
         self.prefix = None
         self.suffix = None
-
+        
+        logging.debug("Initialized.")
+        logging.debug("Extended Prompt is: %s",self.request)
+        
         self.load_templates()
 
     def get_bing_result(self, num_res: int = 3):
@@ -86,16 +120,26 @@ class PreviewModel:
         :param num_res: number of allowed results
         :return:
         """
+        logging.debug("Getting %i Bing Results..",num_res)
         search = BingSearchAPIWrapper(k=num_res)
         # txt_res = search.run(self.request)
         data_res = search.results(self.request, num_res)
+        logging.debug("Finished Getting Bing Results, got %i..",len(data_res))
         urls = [data_res[i]['link'] for i in range(len(data_res))]
         urls = list(set(urls))
+        logging.debug("Checking %i Bing Result URLs after removing duplicates..",len(urls))
         checked_urls = self.check_url_exists(urls)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = 10,requests_kwargs = {"timeout":10})
-        data = loader.load()
+        logging.debug("Done checking, found %i functioning URLs to scrape.",len(checked_urls))
+        logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
+        #data = loader.load()
+        data = loader.load_and_split(self.splitter())
+        for i in range(len(data)):
+            #data[i].page_content = '>>>' + data[i].page_content
+            data[i].page_content = re.sub(r'(?:\n\s?)+','\n',data[i].page_content)
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
+        logging.debug("Finished retrieving, got %i pages.",len(data))
         return data
 
     @staticmethod
@@ -105,15 +149,10 @@ class PreviewModel:
             try:
                 if requests.head(url, allow_redirects=True, timeout=3).status_code == 200:
                     checked_urls.append(url)
-            except: pass
+            except: 
+                logging.debug("URL %s did not immediately return status 200, skipping..",url)
+                pass
         return checked_urls
-
-    @staticmethod
-    def retrieve():
-        from datasets import load_dataset
-
-        data = load_dataset("wikipedia", "20220301.simple", split='train[:10000]')
-        return data
 
     def load_templates(self):
         script_path = Path(__file__).parents[1].resolve()
@@ -140,19 +179,40 @@ class PreviewModel:
         :return:
         """
 
-        example = 'Request: {question} Columns: {query_entries} Answer: {answer}'
-        ex_string = example.format(**self.examples[0])
+        example = 'Request: {question} \nColumns: {query_entries} \nAnswer: {answer}\n\n'
+        ex_string = ""#example.format(**self.examples[0])
         partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}')
-        temp = self.prefix + ' \n The following is an example: ' + ex_string + '  \n  ' + partial_s
+        temp = self.prefix + '  \n  ' + partial_s + '\n'
 
         self.prompt_template = PromptTemplate(template=temp,
                                               input_variables=['context', 'question'])
+        logging.debug("Prompt Template Ready.")
 
+    def tiktoken_len(self, text: str):
+        tokenizer = tiktoken.get_encoding('p50k_base')
+        tokens = tokenizer.encode(
+            text,
+            disallowed_special=()
+        )
+        return len(tokens)
+
+    def splitter(self):
+        return RecursiveCharacterTextSplitter(
+            chunk_size=400,
+            chunk_overlap=20,
+            length_function=self.tiktoken_len,
+            separators=["\\n","\n\n", "\n", " ", ""]
+        )
+    
     def retrieval(self):
-        data = self.get_bing_result(self.num_pages)
-        self.vec_retrieve = RAG(data=data, openai_api_key=self.openai_api_key)
+        
+        if not self.redo:
+            bing_results = self.get_bing_result(self.num_pages)
+            self.vec_retrieve = RAG(knowledgebase=bing_results, openai_api_key=self.openai_api_key, dbType=self.dbType, verbose=self.verbose, redo=False)
+        else:
+            self.vec_retrieve = RAG(knowledgebase=None, openai_api_key=self.openai_api_key, dbType=self.dbType, verbose=self.verbose, redo=True)
+
         self.vec_retrieve.setup()
-        self.vec_retrieve.setup_storage()
 
     def get_answer(self):
         script_path = Path(__file__).parent.resolve()
@@ -161,67 +221,117 @@ class PreviewModel:
             self.retrievalLLM,
             self.prompt_template
         )
-        res = qa_with_sources.run(self.rows)
-        self.parse_output(res)
+        logging.debug("QA Started..")
+        #res = qa_with_sources.run(self.rows)
+        output = qa_with_sources(self.rows,return_only_outputs=True)
+        logging.debug("Parsing QA Result..")
+        logging.debug(output['result'])
+        res = {
+            'result': self.get_csv(output['result']),
+            'sources': self.get_sources(output['source_documents'])
+        }
+        
+        logging.debug("QA Finished.")
+        logging.debug(res)
+        
+    @staticmethod
+    def get_sources(docs):
+        sources = []
+        for doc in docs:
+            sources.append({
+                'url': doc.metadata['source'],
+                'title': doc.metadata['title']
+            })
+        return sources
 
     @staticmethod
-    def parse_output(output):
+    def get_csv(output):
+        stream = StringIO()
+        result_string = ''
         out = []
         dialect = csv.Sniffer().sniff(output)
         reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
         for row in reader:
             out.append(row)
-        writer = csv.writer(sys.stdout,out[0],quoting=csv.QUOTE_ALL)
+        writer = csv.writer(stream,out[0],quoting=csv.QUOTE_ALL)
         for row in out:
             writer.writerow(row)
-        '''
-        result = []
-        column_names = None
-        while output:
-            m = re.search('{(.+?)}', output)
-            if m:
-                try:
-                    elem = dict(ast.literal_eval('{' + m.group(1) + '}'))
-                    result.append(elem)
-                except:
-                    pass
-                
-                output = output[m.span()[1]:]
-            else:
-                output = ''
-        result.insert(0,list({k for d in result for k in d.keys()}))
-        return result
-        '''
+        result_string = stream.getvalue()
+        stream.close()
+        return result_string
 
     def run(self):
         self.get_template()
         self.get_answer()
+        logging.debug("Run Completed.")
 
 
 class RAG:
 
-    def __init__(self, data, openai_api_key):
-        self.data = data
+    def __init__(self, knowledgebase, openai_api_key, dbType, verbose, redo):
+        self.embedding_model = 'text-embedding-ada-002'
+        self.knowledgebase = knowledgebase
+        self.vector_dimensions = 1536
         self.openai_api_key = openai_api_key
+        self.dbType = dbType
+        self.redo = redo
+        self.verbose = verbose
         self.tokenizer = tiktoken.get_encoding('p50k_base')
-        # os.environ['OPENAI_API_KEY'] = openai_api_key[0]
-
-        self.embed = None
+        self.embedder = OpenAIEmbeddings(model=self.embedding_model,openai_api_key=self.openai_api_key)
         self.index = None
         self.vectorstore = None
-
         self.index_name = 'langchain-retrieval-augmentation'
+        
+    def setup_pinecone(self):
+        logging.debug("Setup started for: Pinecone..")
+        
+        pinecone.init(
+            api_key=os.getenv("PINECONE_API_KEY"),
+            environment="gcp-starter"
+        )
+        if not self.redo:
+            try:
+                pinecone.delete_index(name=self.index_name)
+            except:
+                logging.warning("Existing Pinecone Index could not be deleted.")
+                pass
+            
+            try:
+                pinecone.create_index(
+                    name=self.index_name,
+                    metric='cosine',
+                    dimension=self.vector_dimensions
+                )
+            except Exception as error:
+                logging.error("Could not create Pinecone Index: %s",str(error),extra={error:error})
 
+        self.index = pinecone.GRPCIndex(self.index_name)
+        self.index.describe_index_stats()
+        logging.debug("Setup finished for: Pinecone.")
+        
+    def setup_chroma(self):
+        logging.debug("Setup started for: Chroma..")
+        
+    def set_vectorstore_chroma(self):
+        pass
+   
     def setup(self):
-        # sub_data = self.data[6]['text']
-        sub_data = self.data[0].page_content
-
-        text_splitter = self.divide_txt()
-        chunks = text_splitter.split_text(sub_data)[:3]
-        embed = self.get_embedding(chunks)
-        self.pinecone_index(embed, new=True)
-
-        self.add_data_2_index()
+        if self.dbType == "pinecone":
+            self.setup_pinecone()
+            if not self.redo:
+                self.kb_to_index()
+                
+            self.vectorstore = Pinecone(
+                pinecone.Index(self.index_name),
+                self.embedder.embed_query,
+                "text"
+            )
+        else:
+            #self.setup_chroma()
+            #self.kb_to_index()
+            self.vectorstore = Chroma.from_documents(self.knowledgebase,self.embedder)
+            #self.set_vectorstore_chroma()
+        
 
     def tiktoken_len(self, text: str):
         tokens = self.tokenizer.encode(
@@ -240,53 +350,12 @@ class RAG:
         return text_splitter
 
     def get_embedding(self, texts: List[str]):
-        model_name = 'text-embedding-ada-002'
+        logging.debug("Embedding started for %i documents..",len(texts))
+        embeds = self.embedder.embed_documents(texts)
+        logging.debug("Embedding finished.")
+        return embeds
 
-        self.embed = OpenAIEmbeddings(
-            document_model_name=model_name,
-            query_model_name=model_name,
-            openai_api_key=self.openai_api_key
-        )
-
-        return self.embed.embed_documents(texts)
-
-    def pinecone_index(self, embedded_txt, new=False):
-        pinecone.init(
-            api_key=os.getenv("PINECONE_API_KEY"),
-            environment="gcp-starter"
-        )
-
-        if new:
-            try:
-                pinecone.delete_index(name=self.index_name)
-            except:
-                pass
-            
-        try:
-            pinecone.create_index(
-                name=self.index_name,
-                metric='dotproduct',
-                dimension=len(embedded_txt[0])
-            )
-        except Exception as error:
-            print("Error@Pinecone.create_index:",error)
-
-        self.get_index()
-
-    def get_index(self):
-        # connect to the new index
-        self.index = pinecone.GRPCIndex(self.index_name)
-        self.index.describe_index_stats()
-
-    def setup_storage(self):
-        text_field = "text"
-        index = pinecone.Index(self.index_name)
-
-        self.vectorstore = Pinecone(
-            index, self.embed.embed_query, text_field
-        )
-
-    def add_data_2_index(self):
+    def kb_to_index(self):
         batch_limit = 100
         texts = []
         metadatas = []
@@ -294,7 +363,7 @@ class RAG:
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
 
-        for i, record in enumerate(self.data):
+        for i, record in enumerate(self.knowledgebase):
 
             if (record.metadata['source'].split('.')[-1] != 'pdf') and ('title' in record.metadata.keys()):
                 metadata = {
@@ -313,36 +382,33 @@ class RAG:
 
                 texts.extend(record_texts)
                 metadatas.extend(record_metadatas)
-
+                logging.debug("Scraped data split into %i chunks.",len(texts))
                 if len(texts) >= batch_limit:
                     ids = [str(uuid4()) for _ in range(len(texts))]
                     embeds = self.get_embedding(texts)
+                    logging.debug("Upserting Vectors into Vector DB..")
                     self.index.upsert(vectors=zip(ids, embeds, metadatas))
+                    logging.debug("Upserts finished.")
                     texts = []
                     metadatas = []
 
-    def similarity_search(self, query):
-        self.vectorstore.similarity_search(
-            query,
-            k=3
-        )
-
-    def GQA(self, query, llm, prompt_template):
-        qa = RetrievalQA.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=self.vectorstore.as_retriever(),
-            chain_type_kwargs=dict(prompt=prompt_template)
-        )
-        return qa.run(query)
-
     def GQA_Source(self, llm, prompt_template):
-        chain_type_kwargs = {"prompt": prompt_template}
-        qa_with_sources = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=self.vectorstore.as_retriever(),chain_type_kwargs=chain_type_kwargs)
-        '''qa_with_sources = RetrievalQAWithSourcesChain.from_chain_type(
-            llm=llm,
-            chain_type="stuff",
-            retriever=self.vectorstore.as_retriever(),
-            chain_type_kwargs=dict(prompt=prompt_template)
-        )'''
+        logging.debug("Starting Generalistic Question Answering Chain Setup..")
+        chain_type_kwargs = {"prompt": prompt_template,"verbose":self.verbose}
+        docs = self.vectorstore.similarity_search(query="landtagswahl hessen ergebnisse", k=20)
+        logging.debug(docs)
+        qa_with_sources = RetrievalQA.from_chain_type(
+            llm=llm, 
+            chain_type="stuff", 
+            retriever=self.vectorstore.as_retriever(
+                search_type='similarity',
+                search_kwargs={
+                    'k': 10
+                }
+            ),
+            return_source_documents=True,
+            chain_type_kwargs=chain_type_kwargs,
+            verbose=self.verbose
+        )
+        logging.debug("Finished Generalistic Question Answering Chain Setup Finished.")
         return qa_with_sources
