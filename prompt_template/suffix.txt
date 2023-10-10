@@ -1,4 +1,8 @@
+Important background information:
+
 {context}
+
+-----------------------
 Request: {question}
 Columns: {query_entries}
 Answer:

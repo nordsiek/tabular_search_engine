@@ -1,7 +1,7 @@
 example1:
   question: List 2 major oil companies and their revenues in 2020.
   query_entries: '['' Assets'', ''Market Cap'']'
-  answer: '"Company","Assets","Market Cap","Revenue","Profit"
-  "ExxonMobil","$362.6 billion","$185.6 billion","$181.5 billion","$14.3 billion"
-  "Royal Dutch Shell","$388.4 billion","$173.1 billion","$180.5 billion","$15.8 billion"'
+  answer: '''"Company","Assets","Market Cap","Revenue","Profit"\n
+  "ExxonMobil","$362.6 billion","$185.6 billion","$181.5 billion","$14.3 billion"\n
+  "Royal Dutch Shell","$388.4 billion","$173.1 billion","$180.5 billion","$15.8 billion"'''
 
