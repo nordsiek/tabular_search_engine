@@ -14,11 +14,13 @@ import tiktoken
 import yaml
 import logging
 import sys
+import json
 
 from pathlib import Path
 from typing import List
 from uuid import uuid4
 from io import StringIO
+from urllib.parse import urlparse
 
 from langchain import PromptTemplate
 from langchain import FewShotPromptTemplate
@@ -126,21 +128,30 @@ class PreviewModel:
         data_res = search.results(self.request, num_res)
         logging.debug("Finished Getting Bing Results, got %i..",len(data_res))
         urls = [data_res[i]['link'] for i in range(len(data_res))]
-        urls = list(set(urls))
+        #urls = list(set(urls))
+        urls = self.remove_dups(urls)
         logging.debug("Checking %i Bing Result URLs after removing duplicates..",len(urls))
         checked_urls = self.check_url_exists(urls)
-        logging.debug("Done checking, found %i functioning URLs to scrape.",len(checked_urls))
+        logging.debug("Done checking, found %i functioning URLs to scrape:",len(checked_urls))
         logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
         loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
-        #data = loader.load()
         data = loader.load_and_split(self.splitter())
         for i in range(len(data)):
-            #data[i].page_content = '>>>' + data[i].page_content
             data[i].page_content = re.sub(r'(?:\n\s?)+','\n',data[i].page_content)
         # data[1].page_content = 'oiuhoci'
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
         logging.debug("Finished retrieving, got %i pages.",len(data))
         return data
+    
+    @staticmethod
+    def remove_dups(urls: List[str]):
+        urls_tmp = {}
+        for url in list(set(urls)):
+            props = urlparse(url)
+            host = props.hostname
+            if not host in urls_tmp:
+                urls_tmp[host] = url
+        return list(urls_tmp.values())
 
     @staticmethod
     def check_url_exists(urls: List[str]):
@@ -149,6 +160,7 @@ class PreviewModel:
             try:
                 if requests.head(url, allow_redirects=True, timeout=3).status_code == 200:
                     checked_urls.append(url)
+                    logging.debug("Added: %s",url)
             except: 
                 logging.debug("URL %s did not immediately return status 200, skipping..",url)
                 pass
@@ -232,9 +244,8 @@ class PreviewModel:
         }
         
         logging.debug("QA Finished.")
-        logging.debug(res)
         
-        print(res)
+        json.dump(res,sys.stdout)
         
     @staticmethod
     def get_sources(docs):
