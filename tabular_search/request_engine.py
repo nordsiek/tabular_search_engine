@@ -235,6 +235,7 @@ class PreviewModel:
                 logging.warning("Preflight could not extract Cols and Query. Result was: %s",pf_result)
         except Exception as error:
             logging.error("Preflight failed with error: %s",str(error),extra={error:error})
+            logging.error("pf_result was: %s",pf_result)
             logging.debug(error)
 
     def tiktoken_len(self, text: str):
@@ -283,7 +284,8 @@ class PreviewModel:
         
         logging.debug("QA Finished.")
         
-        json.dump(res,sys.stdout)
+        json_str = json.dumps(res)
+        sys.stdout.write(json_str)
         
     @staticmethod
     def get_sources(docs):
@@ -308,9 +310,6 @@ class PreviewModel:
             reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
             for row in reader:
                 out.append(row)
-                logging.debug(row)
-            logging.debug("--- All rows: ---")
-            logging.debug(out)
             if out[0][0] == "Row":
                 for i, row in enumerate(out):
                     out[i].pop(0)
