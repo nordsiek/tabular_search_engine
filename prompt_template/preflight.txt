@@ -1,0 +1,17 @@
+You are an expert data scientist. Today's date is {date}. You are tasked with creating a table given the following request by your boss:
+
+{prompt}
+
+Task 1: Invent 3 or more column names that your table would need to satisfy the request.
+Task 2: Invent a Google search query that is most likely to get you the information needed to fill the table with the requested data.
+
+Example:
+Request: give me the countries with the highest GDP per capita
+Answer:
+Columns: ["Country","GDP","Population","GDP per capita"]
+Search Query: top GDP per capita list population statistic
+
+Your turn.
+
+Request: {prompt}
+Answer:
