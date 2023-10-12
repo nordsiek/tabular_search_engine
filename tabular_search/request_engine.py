@@ -68,6 +68,7 @@ class PreviewModel:
         self.model = (str(model) if model else "gpt-3.5-turbo-16k")
         self.preflightmodel = "gpt-3.5-turbo"
         self.rows = ' '.join(rows)
+        self.n_rows = 0
         self.query = self.rows
         self.columns = str(columns) if columns else '[]'
         self.openai_api_key = openai_api_key
@@ -99,7 +100,7 @@ class PreviewModel:
         logging.debug("Raw Prompt is %s.",self.rows)
         logging.debug("Num Pages is %i.",self.num_pages)
             
-        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=300,max_retries=0)
+        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=600,max_retries=0)
         self.preflightLLM = ChatOpenAI(model_name=self.preflightmodel, temperature=0.6, verbose=self.verbose, request_timeout=300,max_retries=0)
 
         ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
@@ -140,7 +141,7 @@ class PreviewModel:
         checked_urls = self.check_url_exists(urls)
         logging.debug("Done checking, found %i functioning URLs to scrape:",len(checked_urls))
         logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure = True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
         data = loader.load_and_split(self.splitter())
         for i in range(len(data)):
             data[i].page_content = re.sub(r'(?:\n\s?)+','\n',data[i].page_content)
@@ -206,9 +207,8 @@ class PreviewModel:
 
         example = 'Request: {question} \nColumns: {query_entries} \nAnswer: {answer}\n\n'
         ex_string = ""#example.format(**self.examples[0])
-        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}')
+        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}', n_rows=self.n_rows)
         temp = self.prefix + '  \n  ' + partial_s + '\n'
-
         self.prompt_template = PromptTemplate(template=temp,
                                               input_variables=['context', 'question'])
         logging.debug("Prompt Template Ready.")
@@ -218,17 +218,19 @@ class PreviewModel:
         pf_result = ""
         try:
             pf_result = self.preflightLLM.predict(pf)
-            matches = re.search(r"^\s*Columns: (?P<cols>.+)\s+Search Query: (?P<query>.+)\s*$",pf_result)
+            matches = re.search(r"^\s*Row Count: (?P<nrows>.+)\s+Columns: (?P<cols>.+)\s+Search Query: (?P<query>.+)\s*$",pf_result)
+            match_rows = matches.group("nrows")
             match_cols = matches.group("cols")
             match_query = matches.group("query")
-            if match_cols and match_query:
+            if match_rows and match_cols and match_query:
                 self.query = str(match_query)
+                self.n_rows = max(10,int(match_rows))
                 arr = json.loads(match_cols)
                 if len(arr) > 2:
                     self.columns = str(", ".join(arr))
                 else:
                     logging.debug("Preflight did not generate 3 or more columns.")
-                logging.debug("Preflight Results: Columns %s, Query %s",self.columns,self.query)
+                logging.debug("Preflight Results: n: %i, Columns: %s, Query: %s",self.n_rows,self.columns,self.query)
             else:
                 logging.warning("Preflight could not extract Cols and Query. Result was: %s",pf_result)
         except Exception as error:
@@ -270,7 +272,8 @@ class PreviewModel:
         )
         logging.debug("QA Started..")
         #res = qa_with_sources.run(self.rows)
-        output = qa_with_sources(self.rows,return_only_outputs=True)
+        #output = qa_with_sources(self.rows,return_only_outputs=True)
+        output = qa_with_sources({"query":self.rows},return_only_outputs=True)
         logging.debug("Parsing QA Result..")
         logging.debug(output['result'])
         res = {
@@ -305,6 +308,14 @@ class PreviewModel:
             reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
             for row in reader:
                 out.append(row)
+                logging.debug(row)
+            logging.debug("--- All rows: ---")
+            logging.debug(out)
+            if out[0][0] == "Row":
+                for i, row in enumerate(out):
+                    out[i].pop(0)
+            else:
+                logging.debug("Row[0][0] is not 'Row'")
             writer = csv.writer(stream,out[0],quoting=csv.QUOTE_ALL)
             for row in out:
                 writer.writerow(row)

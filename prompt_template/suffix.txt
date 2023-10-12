@@ -1,3 +1,4 @@
+
 Important background information:
 
 {context}
@@ -5,4 +6,5 @@ Important background information:
 -----------------------
 Request: {question}
 Columns: {query_entries}
+Amount of rows: {n_rows}
 Answer:

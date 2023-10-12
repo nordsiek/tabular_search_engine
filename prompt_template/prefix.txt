@@ -4,15 +4,18 @@ Background Info: 'Request' is the search request, 'Columns' is a list of require
 Rules:
 
  1. Add all required columns from "Columns" to the table
- 2. Add additional columns that an expert data scientist would appreciate, so you have at least 4 or more columns in the end
- 2. Fulfill the request by returning a comma-separated CSV.
- 3. Return as many rows as possible or as many as the search request specifically asks for.
+ 2. Always start with a column "Row" counting the amount of rows
+ 3. Add additional columns that an expert data scientist would appreciate, so you have at least 4 or more columns in the end
+ 4. Fulfill the request by returning a comma-separated CSV.
+ 5. Return as many rows as possible or as many as the search request specifically asks for.
+ 6. Do not abbreviate the table. Write all rows and columns explicitly.
 
 The following is an example:
 
 Request: List 2 major oil companies and their revenues in 2020. 
-Columns: ['Assets', 'Market Cap'] 
+Columns: ['Assets', 'Market Cap']
+Amount of rows: 2
 Answer: 
-"Company","Assets","Market Cap","Revenue","Profit"
-"ExxonMobil","$362.6 billion","$185.6 billion","$181.5 billion","$14.3 billion"
-"Royal Dutch Shell","$388.4 billion","$173.1 billion","$180.5 billion","$15.8 billion"
+"Row,"Company","Assets","Market Cap","Revenue","Profit"
+"Row 1/2","ExxonMobil","$362.6 billion","$185.6 billion","$181.5 billion","$14.3 billion"
+"Row 2/2","Royal Dutch Shell","$388.4 billion","$173.1 billion","$180.5 billion","$15.8 billion"
