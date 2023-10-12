@@ -21,6 +21,7 @@ from typing import List
 from uuid import uuid4
 from io import StringIO
 from urllib.parse import urlparse
+from datetime import datetime
 
 from langchain import PromptTemplate
 from langchain import FewShotPromptTemplate
@@ -65,7 +66,9 @@ class PreviewModel:
         self.num_pages = int(num_pages) if num_pages else 100
         self.verbose = bool(verbose) if verbose else False
         self.model = (str(model) if model else "gpt-3.5-turbo-16k")
+        self.preflightmodel = "gpt-3.5-turbo"
         self.rows = ' '.join(rows)
+        self.query = self.rows
         self.columns = str(columns) if columns else '[]'
         self.openai_api_key = openai_api_key
         self.scrape_rps = 10
@@ -96,7 +99,8 @@ class PreviewModel:
         logging.debug("Raw Prompt is %s.",self.rows)
         logging.debug("Num Pages is %i.",self.num_pages)
             
-        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose)
+        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=300,max_retries=0)
+        self.preflightLLM = ChatOpenAI(model_name=self.preflightmodel, temperature=0.6, verbose=self.verbose, request_timeout=300,max_retries=0)
 
         ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
         if columns:
@@ -110,11 +114,13 @@ class PreviewModel:
         self.examples = None
         self.prefix = None
         self.suffix = None
+        self.preflight = None
         
         logging.debug("Initialized.")
         logging.debug("Extended Prompt is: %s",self.request)
         
         self.load_templates()
+        self.do_preflight()
 
     def get_bing_result(self, num_res: int = 3):
         """
@@ -125,7 +131,7 @@ class PreviewModel:
         logging.debug("Getting %i Bing Results..",num_res)
         search = BingSearchAPIWrapper(k=num_res)
         # txt_res = search.run(self.request)
-        data_res = search.results(self.request, num_res)
+        data_res = search.results(self.query, num_res)
         logging.debug("Finished Getting Bing Results, got %i..",len(data_res))
         urls = [data_res[i]['link'] for i in range(len(data_res))]
         #urls = list(set(urls))
@@ -142,6 +148,10 @@ class PreviewModel:
         # data[1].metadata = {'source': ..., 'title': ..., 'description': ..., 'language': ... }
         logging.debug("Finished retrieving, got %i pages.",len(data))
         return data
+    
+    @staticmethod
+    def get_date():
+        return datetime.now().strftime("%Y-%m-%d")
     
     @staticmethod
     def remove_dups(urls: List[str]):
@@ -177,6 +187,9 @@ class PreviewModel:
 
         with open(script_path / 'prompt_template/suffix.txt', 'r') as file:
             self.suffix = file.read().replace('\n', ' \n ')
+            
+        with open(script_path / 'prompt_template/preflight.txt', 'r') as file:
+            self.preflight = file.read().replace('\n', ' \n ')
 
         with open(script_path / 'prompt_template/examples.yaml', 'r') as file:
             self.examples = yaml.safe_load(file)
@@ -199,6 +212,28 @@ class PreviewModel:
         self.prompt_template = PromptTemplate(template=temp,
                                               input_variables=['context', 'question'])
         logging.debug("Prompt Template Ready.")
+
+    def do_preflight(self):
+        pf = self.preflight.format(date=self.get_date(), prompt=self.rows)
+        pf_result = ""
+        try:
+            pf_result = self.preflightLLM.predict(pf)
+            matches = re.search(r"^\s*Columns: (?P<cols>.+)\s+Search Query: (?P<query>.+)\s*$",pf_result)
+            match_cols = matches.group("cols")
+            match_query = matches.group("query")
+            if match_cols and match_query:
+                self.query = str(match_query)
+                arr = json.loads(match_cols)
+                if len(arr) > 2:
+                    self.columns = str(", ".join(arr))
+                else:
+                    logging.debug("Preflight did not generate 3 or more columns.")
+                logging.debug("Preflight Results: Columns %s, Query %s",self.columns,self.query)
+            else:
+                logging.warning("Preflight could not extract Cols and Query. Result was: %s",pf_result)
+        except Exception as error:
+            logging.error("Preflight failed with error: %s",str(error),extra={error:error})
+            logging.debug(error)
 
     def tiktoken_len(self, text: str):
         tokenizer = tiktoken.get_encoding('p50k_base')
@@ -250,11 +285,14 @@ class PreviewModel:
     @staticmethod
     def get_sources(docs):
         sources = []
+        keys = {}
         for doc in docs:
-            sources.append({
-                'url': doc.metadata['source'],
-                'title': doc.metadata['title']
-            })
+            if not doc.metadata['source'] in keys:
+                sources.append({
+                    'url': doc.metadata['source'],
+                    'title': doc.metadata['title']
+                })
+                keys[doc.metadata['source']] = 1
         return sources
 
     @staticmethod
@@ -262,16 +300,21 @@ class PreviewModel:
         stream = StringIO()
         result_string = ''
         out = []
-        dialect = csv.Sniffer().sniff(output)
-        reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
-        for row in reader:
-            out.append(row)
-        writer = csv.writer(stream,out[0],quoting=csv.QUOTE_ALL)
-        for row in out:
-            writer.writerow(row)
-        result_string = stream.getvalue()
-        stream.close()
-        return result_string
+        try:
+            dialect = csv.Sniffer().sniff(output)
+            reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
+            for row in reader:
+                out.append(row)
+            writer = csv.writer(stream,out[0],quoting=csv.QUOTE_ALL)
+            for row in out:
+                writer.writerow(row)
+            result_string = stream.getvalue()
+            stream.close()
+            return result_string
+        except Exception as error:
+            logging.warning("Could not create valid CSV:")
+            logging.warning(error)
+            return ''
 
     def run(self):
         self.get_template()
@@ -290,7 +333,7 @@ class RAG:
         self.redo = redo
         self.verbose = verbose
         self.tokenizer = tiktoken.get_encoding('p50k_base')
-        self.embedder = OpenAIEmbeddings(model=self.embedding_model,openai_api_key=self.openai_api_key)
+        self.embedder = OpenAIEmbeddings(model=self.embedding_model,openai_api_key=self.openai_api_key,request_timeout=600)
         self.index = None
         self.vectorstore = None
         self.index_name = 'langchain-retrieval-augmentation'
@@ -408,8 +451,6 @@ class RAG:
     def GQA_Source(self, llm, prompt_template):
         logging.debug("Starting Generalistic Question Answering Chain Setup..")
         chain_type_kwargs = {"prompt": prompt_template,"verbose":self.verbose}
-        docs = self.vectorstore.similarity_search(query="landtagswahl hessen ergebnisse", k=20)
-        logging.debug(docs)
         qa_with_sources = RetrievalQA.from_chain_type(
             llm=llm, 
             chain_type="stuff", 
