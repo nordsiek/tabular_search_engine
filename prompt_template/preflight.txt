@@ -2,12 +2,14 @@ You are an expert data scientist. Today's date is {date}. You are tasked with cr
 
 {prompt}
 
-Task 1: Invent 3 or more column names that your table would need to satisfy the request.
-Task 2: Invent a Google search query that is most likely to get you the information needed to fill the table with the requested data.
+Task 1: Determine the amount of rows requested by the user, if any. If none are specified, write 0.
+Task 2: Invent 3 or more column names that your table would need to satisfy the request.
+Task 3: Invent a Google search query that is most likely to get you the information needed to fill the table with the requested data.
 
 Example:
-Request: give me the countries with the highest GDP per capita
+Request: give me 10 countries with the highest GDP per capita
 Answer:
+Row Count: 10
 Columns: ["Country","GDP","Population","GDP per capita"]
 Search Query: top GDP per capita list population statistic
 
