@@ -100,14 +100,11 @@ class PreviewModel:
         logging.debug("Raw Prompt is %s.",self.rows)
         logging.debug("Num Pages is %i.",self.num_pages)
             
-        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=600,max_retries=0)
+        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=600,max_retries=1)
         self.preflightLLM = ChatOpenAI(model_name=self.preflightmodel, temperature=0.6, verbose=self.verbose, request_timeout=300,max_retries=0)
 
-        ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
-        if columns:
-            self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
-        else:
-            self.request = ' '.join(rows)
+        self.request = ' '.join(rows)
+        
         self.prompt_template = None
         self.vec_retrieve = None
 
@@ -141,7 +138,7 @@ class PreviewModel:
         checked_urls = self.check_url_exists(urls)
         logging.debug("Done checking, found %i functioning URLs to scrape:",len(checked_urls))
         logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,raise_for_status=False,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
         data = loader.load_and_split(self.splitter())
         for i in range(len(data)):
             data[i].page_content = re.sub(r'(?:\n\s?)+','\n',data[i].page_content)
@@ -207,7 +204,7 @@ class PreviewModel:
 
         example = 'Request: {question} \nColumns: {query_entries} \nAnswer: {answer}\n\n'
         ex_string = ""#example.format(**self.examples[0])
-        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}', n_rows=self.n_rows)
+        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}', n_rows=self.n_rows, date=self.get_date())
         temp = self.prefix + '  \n  ' + partial_s + '\n'
         self.prompt_template = PromptTemplate(template=temp,
                                               input_variables=['context', 'question'])
@@ -235,6 +232,7 @@ class PreviewModel:
                 logging.warning("Preflight could not extract Cols and Query. Result was: %s",pf_result)
         except Exception as error:
             logging.error("Preflight failed with error: %s",str(error),extra={error:error})
+            logging.error("pf_result was: %s",pf_result)
             logging.debug(error)
 
     def tiktoken_len(self, text: str):
@@ -283,7 +281,8 @@ class PreviewModel:
         
         logging.debug("QA Finished.")
         
-        json.dump(res,sys.stdout)
+        json_str = json.dumps(res)
+        sys.stdout.write(json_str)
         
     @staticmethod
     def get_sources(docs):
@@ -308,9 +307,6 @@ class PreviewModel:
             reader = csv.reader([t.strip() for t in output.splitlines()],dialect=dialect)
             for row in reader:
                 out.append(row)
-                logging.debug(row)
-            logging.debug("--- All rows: ---")
-            logging.debug(out)
             if out[0][0] == "Row":
                 for i, row in enumerate(out):
                     out[i].pop(0)

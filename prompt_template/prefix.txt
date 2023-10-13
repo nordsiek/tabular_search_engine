@@ -16,6 +16,6 @@ Request: List 2 major oil companies and their revenues in 2020.
 Columns: ['Assets', 'Market Cap']
 Amount of rows: 2
 Answer: 
-"Row,"Company","Assets","Market Cap","Revenue","Profit"
+"Row","Company","Assets","Market Cap","Revenue","Profit"
 "Row 1/2","ExxonMobil","$362.6 billion","$185.6 billion","$181.5 billion","$14.3 billion"
 "Row 2/2","Royal Dutch Shell","$388.4 billion","$173.1 billion","$180.5 billion","$15.8 billion"
