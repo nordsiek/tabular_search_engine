@@ -100,14 +100,11 @@ class PreviewModel:
         logging.debug("Raw Prompt is %s.",self.rows)
         logging.debug("Num Pages is %i.",self.num_pages)
             
-        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=600,max_retries=0)
+        self.retrievalLLM = ChatOpenAI(model_name=self.model, temperature=0.2, verbose=self.verbose, request_timeout=600,max_retries=1)
         self.preflightLLM = ChatOpenAI(model_name=self.preflightmodel, temperature=0.6, verbose=self.verbose, request_timeout=300,max_retries=0)
 
-        ##self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
-        if columns:
-            self.request = ' '.join(rows) + ' Provide additional information about: ' + ', '.join(columns)
-        else:
-            self.request = ' '.join(rows)
+        self.request = ' '.join(rows)
+        
         self.prompt_template = None
         self.vec_retrieve = None
 
@@ -141,7 +138,7 @@ class PreviewModel:
         checked_urls = self.check_url_exists(urls)
         logging.debug("Done checking, found %i functioning URLs to scrape:",len(checked_urls))
         logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
+        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,raise_for_status=False,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
         data = loader.load_and_split(self.splitter())
         for i in range(len(data)):
             data[i].page_content = re.sub(r'(?:\n\s?)+','\n',data[i].page_content)
@@ -207,7 +204,7 @@ class PreviewModel:
 
         example = 'Request: {question} \nColumns: {query_entries} \nAnswer: {answer}\n\n'
         ex_string = ""#example.format(**self.examples[0])
-        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}', n_rows=self.n_rows)
+        partial_s = self.suffix.format(query_entries=self.columns, context='{context}', question='{question}', n_rows=self.n_rows, date=self.get_date())
         temp = self.prefix + '  \n  ' + partial_s + '\n'
         self.prompt_template = PromptTemplate(template=temp,
                                               input_variables=['context', 'question'])
