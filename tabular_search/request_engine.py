@@ -138,8 +138,11 @@ class PreviewModel:
         checked_urls = self.check_url_exists(urls)
         logging.debug("Done checking, found %i functioning URLs to scrape:",len(checked_urls))
         logging.debug("Scraping URLs with %i RPS, Timeout is %is",self.scrape_rps,self.scrape_timeout)
-        loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,raise_for_status=False,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
-        data = loader.load_and_split(self.splitter())
+        try:
+            loader = WebBaseLoader(web_paths=checked_urls,continue_on_failure=True,raise_for_status=False,requests_per_second = self.scrape_rps,requests_kwargs = {"timeout":self.scrape_timeout})
+            data = loader.load_and_split(self.splitter())
+        except:
+            pass
         for i in range(len(data)):
             data[i].page_content = re.sub(r'(?:\n\s?)+','\n',data[i].page_content)
         # data[1].page_content = 'oiuhoci'
@@ -212,28 +215,54 @@ class PreviewModel:
 
     def do_preflight(self):
         pf = self.preflight.format(date=self.get_date(), prompt=self.rows)
-        pf_result = ""
+        pf_result = None
         try:
             pf_result = self.preflightLLM.predict(pf)
-            matches = re.search(r"^\s*Row Count: (?P<nrows>.+)\s+Columns: (?P<cols>.+)\s+Search Query: (?P<query>.+)\s*$",pf_result)
-            match_rows = matches.group("nrows")
-            match_cols = matches.group("cols")
-            match_query = matches.group("query")
-            if match_rows and match_cols and match_query:
-                self.query = str(match_query)
-                self.n_rows = max(10,int(match_rows))
-                arr = json.loads(match_cols)
-                if len(arr) > 2:
-                    self.columns = str(", ".join(arr))
-                else:
-                    logging.debug("Preflight did not generate 3 or more columns.")
-                logging.debug("Preflight Results: n: %i, Columns: %s, Query: %s",self.n_rows,self.columns,self.query)
-            else:
-                logging.warning("Preflight could not extract Cols and Query. Result was: %s",pf_result)
-        except Exception as error:
-            logging.error("Preflight failed with error: %s",str(error),extra={error:error})
-            logging.error("pf_result was: %s",pf_result)
-            logging.debug(error)
+        except:
+            pass
+        
+        if pf_result:
+            
+            try:
+                match = re.search(r"Row Count:(?:[^0-9])+(?P<rows>[0-9]+)(?:\s+|\w+|$)",pf_result)
+                if match:
+                    g = match.group("rows")
+                    if g:
+                        match_rows = min(100,max(10,int(g)))
+                        logging.debug("Preflight: Rows -> %i",match_rows)
+                        self.n_rows = match_rows
+                    else:
+                        logging.warning("Preflight: No row count")
+            except:
+                logging.warning("Preflight: No row count")
+                
+            try:
+                match = re.search(r"Columns:(?:[^\[]|\s)+(?P<cols>\[.+\])(?:\s+|\w+|$)",pf_result)
+                if match:
+                    g = match.group("cols")
+                    if g:
+                        arr = json.loads(g)
+                        if arr and (len(arr) > 2):
+                            match_cols = ", ".join(arr)
+                            logging.debug("Preflight: Columns -> %s",match_cols)
+                            self.columns = match_cols
+                    else:
+                        logging.warning("Preflight: No column names")
+            except:
+                logging.warning("Preflight: No column names")
+                  
+            try:      
+                match = re.search(r"Search Query:(?:\s)*(?P<query>.+)(?:\s+|$)",pf_result)
+                if match:
+                    g = match.group("query")
+                    if g:
+                        match_query = g
+                        logging.debug("Preflight: Query -> %s",match_query)
+                        self.query = match_query
+                    else:
+                        logging.warning("Preflight: No search query")
+            except:
+                logging.warning("Preflight: No search query")
 
     def tiktoken_len(self, text: str):
         tokenizer = tiktoken.get_encoding('p50k_base')
