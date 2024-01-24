@@ -6,9 +6,11 @@ Rules:
  1. Add all required columns from "Columns" to the table
  2. Always start with a column "Row" counting the amount of rows
  3. Add additional columns that an expert data scientist would appreciate, so you have at least 4 or more columns in the end
- 4. Fulfill the request by returning a comma-separated CSV.
- 5. Return as many rows as possible or as many as the search request specifically asks for.
- 6. Do not abbreviate the table. Write all rows and columns explicitly.
+ 4. Fill missing cells with a best guess, do not leave entire columns empty
+ 5. Fulfill the request by returning a comma-separated CSV.
+ 6. Return as many rows as possible or as many as the search request specifically asks for.
+ 7. Do not abbreviate the table. Write all rows and columns explicitly.
+ 8. Do not add any explanations before or after the table. Only return the table itself.
 
 The following is an example:
 

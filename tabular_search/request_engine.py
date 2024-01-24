@@ -4,6 +4,7 @@ __import__('pysqlite3')
 
 import ast
 import argparse
+import glob
 import csv
 import os
 import pandas as pd
@@ -35,6 +36,10 @@ from langchain.utilities import BingSearchAPIWrapper
 from langchain.vectorstores import Pinecone
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.vectorstores import Chroma
+from langchain.docstore.document import Document
+from langchain.schema.retriever import BaseRetriever
+from langchain.callbacks.manager import CallbackManagerForRetrieverRun, AsyncCallbackManagerForRetrieverRun
+from langchain.schema.vectorstore import VectorStoreRetriever
 
 sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
@@ -50,6 +55,7 @@ class PreviewModel:
                  redo: bool,
                  model: str,
                  rows: List[str],
+                 offline: bool= False,
                  columns: List[str] = None):
 
         """
@@ -65,6 +71,7 @@ class PreviewModel:
         
         self.num_pages = int(num_pages) if num_pages else 100
         self.verbose = bool(verbose) if verbose else False
+        self.offline = bool(offline)
         self.model = (str(model) if model else "gpt-3.5-turbo-16k")
         self.preflightmodel = "gpt-3.5-turbo"
         self.rows = ' '.join(rows)
@@ -118,6 +125,7 @@ class PreviewModel:
         logging.debug("Extended Prompt is: %s",self.request)
         
         self.load_templates()
+        self.load_tables()
         self.do_preflight()
 
     def get_bing_result(self, num_res: int = 3):
@@ -213,6 +221,81 @@ class PreviewModel:
                                               input_variables=['context', 'question'])
         logging.debug("Prompt Template Ready.")
 
+    def get_table_files(self):
+        directory = "./tables"
+        files_data = []  # List to store all file dicts
+        search_pattern = os.path.join(directory, '*.csv')  # Pattern for CSV files
+        files = glob.glob(search_pattern)
+        logging.debug("Found %i table files with pattern %s..",len(files),search_pattern)
+        # Glob CSV files in the directory
+        for csv_file in files:
+            logging.debug("Loading table %s..",csv_file)
+            with open(csv_file, 'r', newline='', encoding='utf-8') as file:
+                reader = csv.reader(file, delimiter=';')
+                header = next(reader)  # Get the column names (first row)
+                header = [h.strip('"') for h in header]  # Remove surrounding quotes
+
+                # Get the remaining rows and remove surrounding quotes
+                rows = []
+                rows_raw = []
+                for row in reader:
+                    rows_raw.append(row)
+                    rows.append('"'+'","'.join(row)+'"')
+
+                # Prepare the dict with filename, columns, and rows
+                file_data = {
+                    'filename': os.path.splitext(os.path.basename(csv_file))[0],
+                    'columns': header,
+                    'rows': rows,
+                    'rows_raw': rows_raw
+                }
+
+                # Append the dict to the list
+                files_data.append(file_data)
+        logging.debug("Finished retrieving %i tables.",len(files_data))
+        return files_data
+    
+    def load_tables(self):
+        as_csv = False
+        #as_csv = True
+        tables = self.get_table_files()
+        docs = []
+        splitter = RecursiveCharacterTextSplitter(
+            chunk_size=400,
+            chunk_overlap=20,
+            length_function=self.tiktoken_len,
+            separators=["\\n","\n\n", "\n", " ", ""]
+        )
+        for table in tables:
+            if as_csv:
+                content = ",".join(table['columns'])
+                content = '"'+'","'.join(table['columns'])+'"'
+                header = 'From user table ' + table["filename"] + ":\n" + content + "\n"
+                header_len = self.tiktoken_len(header)
+                table_splits = splitter.split_text("\n".join(table["rows"]))
+                for split in table_splits:
+                    docs.append(Document(page_content=(header + split), metadata={"source": table["filename"],"title":table["filename"]}))
+            else:
+                header = 'From user table ' + table["filename"] + ":\n"
+                header_len = self.tiktoken_len(header)
+                rows_json_like = [
+                    '- ' + ', '.join(f'{col}: "{cell}"' for col, cell in zip(table['columns'], row))
+                    for row in table['rows_raw']
+                ]
+                content_as_json_like = "\n".join(rows_json_like)  # Join all JSON-like strings with a newline
+                table_splits = splitter.split_text(content_as_json_like)
+                
+                for split in table_splits:
+                    header = 'From user table ' + table["filename"] + ":\n"  # Table header
+                    docs.append(Document(page_content=(header + split), metadata={"source": table["filename"], "title": table["filename"]}))
+
+            logging.debug("Table Header for %s has length %i and content %s, resulting in %i splits.",table["filename"],header_len,header,len(table_splits))
+            logging.debug("Sample Docs:")
+            logging.debug(table_splits[10])
+            logging.debug(table_splits[100])
+            logging.debug(table_splits[200])
+        return docs
+
     def do_preflight(self):
         pf = self.preflight.format(date=self.get_date(), prompt=self.rows)
         pf_result = None
@@ -281,12 +364,13 @@ class PreviewModel:
         )
     
     def retrieval(self):
-        
-        if not self.redo:
+        if not self.offline:
             bing_results = self.get_bing_result(self.num_pages)
-            self.vec_retrieve = RAG(knowledgebase=bing_results, openai_api_key=self.openai_api_key, dbType=self.dbType, verbose=self.verbose, redo=False)
         else:
-            self.vec_retrieve = RAG(knowledgebase=None, openai_api_key=self.openai_api_key, dbType=self.dbType, verbose=self.verbose, redo=True)
+            bing_results = None
+            
+        table_results = self.load_tables()
+        self.vec_retrieve = RAG(knowledgebase=bing_results,tables=table_results, openai_api_key=self.openai_api_key, dbType=self.dbType, verbose=self.verbose, redo=False)
 
         self.vec_retrieve.setup()
 
@@ -295,7 +379,8 @@ class PreviewModel:
         self.retrieval()
         qa_with_sources = self.vec_retrieve.GQA_Source(
             self.retrievalLLM,
-            self.prompt_template
+            self.prompt_template,
+            self.query
         )
         logging.debug("QA Started..")
         #res = qa_with_sources.run(self.rows)
@@ -357,12 +442,25 @@ class PreviewModel:
         self.get_answer()
         logging.debug("Run Completed.")
 
+class CustomRetriever(VectorStoreRetriever):
+    vectorstore: VectorStoreRetriever
+    search_type: str = "similarity"
+    #search_kwargs: {'k': 10,'fetch_k': 30,'lambda_mult': 0.25 }
+    search_kwargs: dict = {'k': 10 }
+    query: str = ""
+
+    def get_relevant_documents(self, query: str) -> List[Document]:
+        logging.debug("Retrieving relevant documents for query: %s",self.query)
+        results = self.vectorstore.get_relevant_documents(query=self.query)
+        #return results
+        return []
 
 class RAG:
 
-    def __init__(self, knowledgebase, openai_api_key, dbType, verbose, redo):
+    def __init__(self, knowledgebase, tables, openai_api_key, dbType, verbose, redo):
         self.embedding_model = 'text-embedding-ada-002'
         self.knowledgebase = knowledgebase
+        self.tables = tables
         self.vector_dimensions = 1536
         self.openai_api_key = openai_api_key
         self.dbType = dbType
@@ -406,7 +504,20 @@ class RAG:
         
     def set_vectorstore_chroma(self):
         pass
-   
+    
+    def filter_documents(self,docs):
+        unique_sources = list({doc.metadata["source"] for doc in docs})
+        new_sources = []
+        logging.debug("Unique sources: %s",",".join(unique_sources))
+        for source in unique_sources:
+            matches = self.vectorstore.get(where={"source": source},include=["metadatas"])
+            if len(matches["ids"]) < 1:
+                logging.debug("Source is new: %s",source)
+                new_sources.append(source)
+        new_docs = [doc for doc in docs if doc.metadata["source"] in new_sources]
+        logging.debug("Remaining new documents: %i",len(new_docs))
+        return new_docs
+        
     def setup(self):
         if self.dbType == "pinecone":
             self.setup_pinecone()
@@ -421,10 +532,17 @@ class RAG:
         else:
             #self.setup_chroma()
             #self.kb_to_index()
-            self.vectorstore = Chroma.from_documents(self.knowledgebase,self.embedder)
+            self.vectorstore = Chroma(embedding_function=self.embedder,persist_directory="./chromadb")
+            if self.knowledgebase:
+                self.vectorstore.add_documents(self.knowledgebase)
+            if self.tables:
+                docs = self.filter_documents(self.tables)
+                if len(docs) > 0: 
+                    self.vectorstore.add_documents(docs)
+            #self.vectorstore = Chroma.from_documents(self.knowledgebase,self.embedder)
+
             #self.set_vectorstore_chroma()
         
-
     def tiktoken_len(self, text: str):
         tokens = self.tokenizer.encode(
             text,
@@ -484,18 +602,31 @@ class RAG:
                     texts = []
                     metadatas = []
 
-    def GQA_Source(self, llm, prompt_template):
+    def GQA_Source(self, llm, prompt_template, dbQuery):
         logging.debug("Starting Generalistic Question Answering Chain Setup..")
         chain_type_kwargs = {"prompt": prompt_template,"verbose":self.verbose}
+        search_type = "similarity"
+        search_kwargs = {
+            'k': 10
+        }
+        '''
+        search_type = "mmr"
+        search_kwargs = {
+            'k': 10,
+            'fetch_k': 30,
+            'lambda_mult': 0.25
+        }
+        '''
+        '''db_retriever = self.vectorstore.as_retriever(
+                search_type=search_type,
+                search_kwargs=search_kwargs
+            )
+        '''
+        db_retriever = CustomRetriever(vectorstore=self.vectorstore.as_retriever(search_type=search_type, search_kwargs=search_kwargs),query=dbQuery)
         qa_with_sources = RetrievalQA.from_chain_type(
             llm=llm, 
             chain_type="stuff", 
-            retriever=self.vectorstore.as_retriever(
-                search_type='similarity',
-                search_kwargs={
-                    'k': 10
-                }
-            ),
+            retriever=db_retriever,
             return_source_documents=True,
             chain_type_kwargs=chain_type_kwargs,
             verbose=self.verbose

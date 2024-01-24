@@ -11,6 +11,7 @@ parser.add_argument("-b_key", "--bing_api_key", help="API key from Bing.", dest=
 parser.add_argument("-p_key", "--pinecone_api_key", help="API key from Pinecone.", dest="pinecone_api_key", required=False)
 parser.add_argument("-db", "--database", help="Vector DB storage type.", dest='dbType', required=False)
 parser.add_argument("-n", "--num_pages", help="Specify the number of web pages to retrieve.", dest="num_pages", required=False)
+parser.add_argument("-o", "--offline", help="Disable internet search.", dest="offline", required=False)
 parser.add_argument("-m", "--model", help="Select alternative OpenAI model", dest="model", required=False)
 parser.add_argument("-v", "--verbose", help="Print additional debug information", dest="verbose", required=False)
 parser.add_argument("-r", "--request", help="Your request.", dest="rows", required=True, nargs='+')

@@ -1,0 +1,134 @@
+
+
+[1m> Entering new RetrievalQA chain...[0m
+
+
+[1m> Entering new StuffDocumentsChain chain...[0m
+
+
+[1m> Entering new LLMChain chain...[0m
+Prompt after formatting:
+[32;1m[1;3mYou are an expert data scientist tasked with creating a CSV table with relevant data for a specific search request.  
+ Background Info: 'Request' is the search request, 'Columns' is a list of required columns (if any) 
+  
+ Rules: 
+  
+  1. Add all required columns from "Columns" to the table 
+  2. Always start with a column "Row" counting the amount of rows 
+  3. Add additional columns that an expert data scientist would appreciate, so you have at least 4 or more columns in the end 
+  4. Fill missing cells with a best guess, do not leave entire columns empty 
+  5. Fulfill the request by returning a comma-separated CSV. 
+  6. Return as many rows as possible or as many as the search request specifically asks for. 
+  7. Do not abbreviate the table. Write all rows and columns explicitly. 
+  8. Do not add any explanations before or after the table. Only return the table itself. 
+  
+ The following is an example: 
+  
+ Request: List 2 major oil companies and their revenues in 2020.  
+ Columns: ['Assets', 'Market Cap'] 
+ Amount of rows: 2 
+ Answer:  
+ "Row","Company","Assets","Market Cap","Revenue","Profit" 
+ "Row 1/2","ExxonMobil","$362.6 billion","$185.6 billion","$181.5 billion","$14.3 billion" 
+ "Row 2/2","Royal Dutch Shell","$388.4 billion","$173.1 billion","$180.5 billion","$15.8 billion"  
+   
+ Important background information: 
+  
+ From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c5cd09c382b004d375ee2","Hannah, Cognac Braun, 2XL","RIHANNA-COGNAC BRAUN-2XL","4260566244867","Hannah","Damen-Lederjacke","women","PK","Cognac Braun","2XL","39,00","Stehkragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c5cd09c382b004d375ee4","Hannah, Cognac Braun, 3XL","RIHANNA-COGNAC BRAUN-3XL","4260700533246","Hannah","Damen-Lederjacke","women","PK","Cognac Braun","3XL","39,00","Stehkragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c5cd09c382b004d375ede","Hannah, Cognac Braun, L","RIHANNA-COGNAC BRAUN-L","4260566244843","Hannah","Damen-Lederjacke","women","PK","Cognac Braun","L","39,00","Stehkragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c62379c382b004d38a783","Belle, Cognac, 2XL","FW21-IE-#52 (Bleistiftrock)-COGNAC-2XL","","Belle","","none","IN","Cognac","2XL","","","","","","","",""
+"616c62379c382b004d38a789","Belle, Cognac, 3XL","FW21-IE-#52 (Bleistiftrock)-COGNAC-3XL","","Belle","","none","IN","Cognac","3XL","","","","","","","",""
+"616c62379c382b004d38a777","Belle, Cognac, L","FW21-IE-#52 (Bleistiftrock)-COGNAC-L","","Belle","","none","IN","Cognac","L","","","","","","","",""
+"616c62379c382b004d38a771","Belle, Cognac, M","FW21-IE-#52 (Bleistiftrock)-COGNAC-M","","Belle","","none","IN","Cognac","M","","","","","","","",""
+"616c62379c382b004d38a76b","Belle, Cognac, S","FW21-IE-#52 (Bleistiftrock)-COGNAC-S","","Belle","","none","IN","Cognac","S","","","","","","","",""
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c5e729c382b004d37d5d9","Ambalo, XL, Cognac","BALMAN-XL-COGNAC","","Ambalo","Herren-Lederjacke","men","IN","Cognac","XL","","Polokragen","Front-Reißverschluss","Slim-Fit","Baumwolle","Büffel-Nappa Leder","Frühling/Herbst - Übergang","Bomber Stil"
+"616c622b9c382b004d38a5d4","Amber, Cognac, 2XL","FW21-IE-#78 (Ballonrock)-COGNAC-2XL","","Amber","","none","IN","Cognac","2XL","","","","","","","",""
+"616c622b9c382b004d38a5da","Amber, Cognac, 3XL","FW21-IE-#78 (Ballonrock)-COGNAC-3XL","","Amber","","none","IN","Cognac","3XL","","","","","","","",""
+"616c622b9c382b004d38a5c8","Amber, Cognac, L","FW21-IE-#78 (Ballonrock)-COGNAC-L","","Amber","","none","IN","Cognac","L","","","","","","","",""
+"616c622b9c382b004d38a5c2","Amber, Cognac, M","FW21-IE-#78 (Ballonrock)-COGNAC-M","","Amber","","none","IN","Cognac","M","","","","","","","",""
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"61dc37139c382b004d867c90","Cara, Cognac, XL","Marcella (Strick) (Black)-COGNAC-XL","","Cara","Damen-Lederjacke","women","IN","Cognac","XL","59,00","","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang",""
+"61dc37139c382b004d867c3c","Cara, Cognac, XS","Marcella (Strick) (Black)-COGNAC-XS","","Cara","Damen-Lederjacke","women","IN","Cognac","XS","59,00","","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang",""
+"61dc37139c382b004d867ca5","Cara, Cognac, XXL","Marcella (Strick) (Black)-COGNAC-XXL","","Cara","Damen-Lederjacke","women","IN","Cognac","XXL","59,00","","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang",""
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c62849c382b004d38d729","Abigale Comfort, Cognac, 44","Abigale Comfort-COGNAC-44","","Abigale Comfort","","none","IN","Cognac","44","","","","","","","",""
+"616c62849c382b004d38d72f","Abigale Comfort, Cognac, 46","Abigale Comfort-COGNAC-46","","Abigale Comfort","","none","IN","Cognac","46","","","","","","","",""
+"616c62849c382b004d38d735","Abigale Comfort, Cognac, 48","Abigale Comfort-COGNAC-48","","Abigale Comfort","","none","IN","Cognac","48","","","","","","","",""
+"616c62849c382b004d38d73b","Abigale Comfort, Cognac, 50","Abigale Comfort-COGNAC-50","","Abigale Comfort","","none","IN","Cognac","50","","","","","","","",""
+"616c62849c382b004d38d741","Abigale Comfort, Cognac, 52","Abigale Comfort-COGNAC-52","","Abigale Comfort","","none","IN","Cognac","52","","","","","","","",""
+"616c62849c382b004d38d747","Abigale Comfort, Cognac, 54","Abigale Comfort-COGNAC-54","","Abigale Comfort","","none","IN","Cognac","54","","","","","","","",""
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c61879c382b004d389084","Eliza, Cognac, XL","ELIZA-COGNAC-XL","4260700535097","Eliza","Damen-Lederjacke","women","IN","Cognac","XL","","Auslegekragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c61879c382b004d389064","Eliza, Cognac, XS","ELIZA-COGNAC-XS","4260700535059","Eliza","Damen-Lederjacke","women","IN","Cognac","XS","","Auslegekragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c61879c382b004d38908e","Eliza, Jade Grün, 2XL","ELIZA-JADE GRÜN-2XL","4260700535172","Eliza","Damen-Lederjacke","women","IN","Jade Grün","2XL","","Auslegekragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c5f5d9c382b004d38068e","Rolando, Cognac Braun, L","Ronaldo-COGNAC BRAUN-L","","Rolando","Herren-Lederjacke","men","IN","Cognac Braun","L","","","Front-Reißverschluss","Slim-Fit","Baumwolle","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c5f5d9c382b004d38068c","Rolando, Cognac Braun, M","Ronaldo-COGNAC BRAUN-M","","Rolando","Herren-Lederjacke","men","IN","Cognac Braun","M","","","Front-Reißverschluss","Slim-Fit","Baumwolle","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c5f5d9c382b004d38068a","Rolando, Cognac Braun, S","Ronaldo-COGNAC BRAUN-S","","Rolando","Herren-Lederjacke","men","IN","Cognac Braun","S","","","Front-Reißverschluss","Slim-Fit","Baumwolle","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c5cd09c382b004d375edc","Hannah, Cognac Braun, M","RIHANNA-COGNAC BRAUN-M","4260566244836","Hannah","Damen-Lederjacke","women","PK","Cognac Braun","M","39,00","Stehkragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c5cd09c382b004d375eda","Hannah, Cognac Braun, S","RIHANNA-COGNAC BRAUN-S","4260566244829","Hannah","Damen-Lederjacke","women","PK","Cognac Braun","S","39,00","Stehkragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"616c5cd09c382b004d375ee0","Hannah, Cognac Braun, XL","RIHANNA-COGNAC BRAUN-XL","4260566244850","Hannah","Damen-Lederjacke","women","PK","Cognac Braun","XL","39,00","Stehkragen","Front-Reißverschluss","Slim-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"616c628c9c382b004d38db7a","Eliza Comfort, Cognac, 40","Eliza Comfort-COGNAC-40","","Eliza Comfort","","none","IN","Cognac","40","","","","","","","",""
+"616c628c9c382b004d38db83","Eliza Comfort, Cognac, 42","Eliza Comfort-COGNAC-42","","Eliza Comfort","","none","IN","Cognac","42","","","","","","","",""
+"616c628c9c382b004d38db8c","Eliza Comfort, Cognac, 44","Eliza Comfort-COGNAC-44","","Eliza Comfort","","none","IN","Cognac","44","","","","","","","",""
+"616c628c9c382b004d38db94","Eliza Comfort, Cognac, 46","Eliza Comfort-COGNAC-46","","Eliza Comfort","","none","IN","Cognac","46","","","","","","","",""
+"616c628c9c382b004d38db9d","Eliza Comfort, Cognac, 48","Eliza Comfort-COGNAC-48","","Eliza Comfort","","none","IN","Cognac","48","","","","","","","",""
+"616c628c9c382b004d38dba6","Eliza Comfort, Cognac, 50","Eliza Comfort-COGNAC-50","","Eliza Comfort","","none","IN","Cognac","50","","","","","","","",""
+
+From user table Products:
+"ArticleID","ArticleName","SKU","EAN","ProductName","Archetype","Gender","CountryOfOrigin","Color","Size","PrimeCost","Filter_collar","Fastener","Fit","Lining","Material","Season","Style"
+"61dc250a9c382b004d83cd5b","Cecila, Cognac, XL","AW22-IE-23 -COGNAC-XL","4262448381714","Cecila","Damen-Lederjacke","women","IN","Cognac","XL","46,00","Polokragen","Mit Knopfleiste verschließbar","Regular-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"61dc250a9c382b004d83ccb6","Cecila, Cognac, XS","AW22-IE-23 -COGNAC-XS","4262448381677","Cecila","Damen-Lederjacke","women","IN","Cognac","XS","46,00","Polokragen","Mit Knopfleiste verschließbar","Regular-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil"
+"61dc250a9c382b004d83cd85","Cecila, Cognac, XXL","AW22-IE-23 -COGNAC-XXL","4262448381721","Cecila","Damen-Lederjacke","women","IN","Cognac","XXL","46,00","Polokragen","Mit Knopfleiste verschließbar","Regular-Fit","Polysatin","Lamm-Nappa Leder","Frühling/Herbst - Übergang","Klassicher Stil" 
+  
+ ----------------------- 
+  
+ Remember: You are an expert data scientist tasked with creating a CSV table compiled from the information above. Today's date is 2023-11-14. 
+ Another example: 
+  
+ Request: give me the top 3 countries by GDP.  
+ Columns: ['Country', 'GDP', 'GDP per capita'] 
+ Amount of rows: 3 
+ Answer:  
+ "Row","Country","GDP","Population","GDP per capita" 
+ "Row 1/3","United States","$25.463 trillion","338,289,857","$75,269" 
+ "Row 2/3","China","$17.963 trillion","1,425,887,337","$12,598" 
+ "Row 3/3","Japan","$4.231 trillion","123,951,692","$34,135" 
+  
+ Now your turn: 
+  
+ Request: which ID does Blanca in cognac have? 
+ Columns: ID, Name, Location 
+ Amount of rows: 10 
+ Answer:
+[0m
+
+[1m> Finished chain.[0m
+
+[1m> Finished chain.[0m
+
+[1m> Finished chain.[0m
+{"result": "\"ID\",\"Name\",\"Location\",\"Color\",\"Size\",\"PrimeCost\",\"Material\",\"Season\",\"Style\"\r\n\"616c62379c382b004d38a783\",\"Belle, Cognac, 2XL\",\"IN\",\"Cognac\",\"2XL\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c62379c382b004d38a789\",\"Belle, Cognac, 3XL\",\"IN\",\"Cognac\",\"3XL\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c62379c382b004d38a777\",\"Belle, Cognac, L\",\"IN\",\"Cognac\",\"L\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c62379c382b004d38a771\",\"Belle, Cognac, M\",\"IN\",\"Cognac\",\"M\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c62379c382b004d38a76b\",\"Belle, Cognac, S\",\"IN\",\"Cognac\",\"S\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c622b9c382b004d38a5d4\",\"Amber, Cognac, 2XL\",\"IN\",\"Cognac\",\"2XL\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c622b9c382b004d38a5da\",\"Amber, Cognac, 3XL\",\"IN\",\"Cognac\",\"3XL\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c622b9c382b004d38a5c8\",\"Amber, Cognac, L\",\"IN\",\"Cognac\",\"L\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c622b9c382b004d38a5c2\",\"Amber, Cognac, M\",\"IN\",\"Cognac\",\"M\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n\"616c62849c382b004d38d729\",\"Abigale Comfort, Cognac, 44\",\"IN\",\"Cognac\",\"44\",\"N/A\",\"N/A\",\"N/A\",\"N/A\"\r\n", "sources": [{"url": "Products", "title": "Products"}]}
